@@ -214,6 +214,8 @@ extern int devfreq_resume_device(struct devfreq *devfreq);
  * Note: devfreq->lock must be held
  */
 extern int update_devfreq(struct devfreq *devfreq);
+extern void devfreq_suspend(void);
+extern void devfreq_resume(void);
 
 /* Helper functions for devfreq user device driver with OPP. */
 extern struct dev_pm_opp *devfreq_recommended_opp(struct device *dev,
@@ -336,6 +338,9 @@ static inline int devfreq_resume_device(struct devfreq *devfreq)
 {
 	return 0;
 }
+
+static inline void devfreq_suspend(void) {}
+static inline void devfreq_resume(void) {}
 
 static inline struct dev_pm_opp *devfreq_recommended_opp(struct device *dev,
 					   unsigned long *freq, u32 flags)
