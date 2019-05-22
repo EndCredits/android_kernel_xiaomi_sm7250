@@ -720,8 +720,11 @@ retry:
 	if (cmpxchg(&r->entropy_count, orig, entropy_count) != orig)
 		goto retry;
 
-	if (has_initialized)
+	if (has_initialized) {
 		r->initialized = 1;
+		wake_up_interruptible(&random_read_wait);
+		kill_fasync(&fasync, SIGIO, POLL_IN);
+	}
 
 	trace_credit_entropy_bits(r->name, nbits,
 				  entropy_count >> ENTROPY_SHIFT, _RET_IP_);
@@ -735,6 +738,13 @@ retry:
 				return;
 			crng_reseed(&primary_crng, r);
 			entropy_bits = r->entropy_count >> ENTROPY_SHIFT;
+		}
+
+		/* initialize the blocking pool if necessary */
+		if (entropy_bits >= random_read_wakeup_bits &&
+		    !other->initialized) {
+			schedule_work(&other->push_work);
+			return;
 		}
 
 		/* should we wake readers? */
@@ -1900,10 +1910,36 @@ urandom_read_nowarn(struct file *file, char __user *buf, size_t nbytes,
 {
 	int ret;
 
-	nbytes = min_t(size_t, nbytes, INT_MAX >> (ENTROPY_SHIFT + 3));
-	ret = extract_crng_user(buf, nbytes);
-	trace_urandom_read(8 * nbytes, 0, ENTROPY_BITS(&input_pool));
-	return ret;
+	if (nbytes == 0)
+		return 0;
+
+	nbytes = min_t(size_t, nbytes, SEC_XFER_SIZE);
+	while (1) {
+		n = extract_entropy_user(&blocking_pool, buf, nbytes);
+		if (n < 0)
+			return n;
+		trace_random_read(n*8, (nbytes-n)*8,
+				  ENTROPY_BITS(&blocking_pool),
+				  ENTROPY_BITS(&input_pool));
+		if (n > 0)
+			return n;
+
+		/* Pool is (near) empty.  Maybe wait and retry. */
+		if (nonblock)
+			return -EAGAIN;
+
+		wait_event_interruptible(random_read_wait,
+		    blocking_pool.initialized &&
+		    (ENTROPY_BITS(&input_pool) >= random_read_wakeup_bits));
+		if (signal_pending(current))
+			return -ERESTARTSYS;
+	}
+}
+
+static ssize_t
+random_read(struct file *file, char __user *buf, size_t nbytes, loff_t *ppos)
+{
+	return _random_read(file->f_flags & O_NONBLOCK, buf, nbytes);
 }
 
 static ssize_t
