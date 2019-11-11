@@ -624,6 +624,8 @@ struct ufs_dev_info {
 	unsigned int quirks;
 
 	bool keep_vcc_on;
+
+	bool wb_config_lun;
 };
 
 #define MAX_MODEL_LEN 16
