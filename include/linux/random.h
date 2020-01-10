@@ -141,8 +141,7 @@ static inline bool arch_get_random_seed_long(unsigned long *v)
 #ifndef arch_get_random_seed_long_early
 static inline bool __init arch_get_random_seed_long_early(unsigned long *v)
 {
-	WARN_ON(system_state != SYSTEM_BOOTING);
-	return arch_get_random_seed_long(v);
+	return false;
 }
 #endif
 
