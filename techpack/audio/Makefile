@@ -70,11 +70,11 @@ endif
 
 obj-y += soc/
 obj-y += dsp/
-obj-y += dsp/elliptic
+# obj-y += dsp/elliptic
 #for mius start
-ifeq ($(CONFIG_US_PROXIMITY), y)
-obj-y += dsp/mius
-endif
+# ifeq ($(CONFIG_US_PROXIMITY), y)
+# obj-y += dsp/mius
+# endif
 #for mius end
 obj-y += ipc/
 obj-y += asoc/
