@@ -13,9 +13,15 @@ export
 endif
 ifeq ($(CONFIG_ARCH_KONA), y)
 include $(srctree)/techpack/audio/config/konaauto.conf
+export
 endif
 ifeq ($(CONFIG_ARCH_SDM660), y)
 include $(srctree)/techpack/audio/config/sdm660auto.conf
+export
+endif
+ifeq ($(CONFIG_ARCH_LITO), y)
+include $(srctree)/techpack/audio/config/litoauto.conf
+export
 endif
 
 # Use USERINCLUDE when you must reference the UAPI directories only.
@@ -57,6 +63,11 @@ ifeq ($(CONFIG_ARCH_SDM660), y)
 LINUXINCLUDE    += \
                 -include $(srctree)/techpack/audio/config/sdm660autoconf.h
 endif
+ifeq ($(CONFIG_ARCH_LITO), y)
+LINUXINCLUDE    += \
+                -include $(srctree)/techpack/audio/config/litoautoconf.h
+endif
+
 obj-y += soc/
 obj-y += dsp/
 obj-y += dsp/elliptic
