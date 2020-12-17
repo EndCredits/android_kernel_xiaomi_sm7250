@@ -4484,6 +4484,7 @@ CONFIG_ION_POOL_FILL_MARK=100
 # CONFIG_GREYBUS is not set
 # CONFIG_PI433 is not set
 # CONFIG_MTK_MMC is not set
+CONFIG_QCA_CLD_WLAN=y
 
 #
 # Gasket devices

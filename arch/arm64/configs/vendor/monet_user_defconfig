@@ -4440,6 +4440,7 @@ CONFIG_ION_POOL_FILL_MARK=100
 # CONFIG_MOST is not set
 # CONFIG_GREYBUS is not set
 # CONFIG_PI433 is not set
+CONFIG_QCA_CLD_WLAN=y
 
 #
 # Gasket devices
