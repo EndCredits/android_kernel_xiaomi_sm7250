@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
  * Copyright (C) 2021 XiaoMi, Inc.
  */
 #include <linux/debugfs.h>
@@ -754,12 +754,14 @@ static int _disp_hyp_log_stats(size_t count)
 {
 	static struct hypdbg_log_pos_t log_start = {0};
 	uint8_t *log_ptr;
+	uint32_t log_len;
 
 	log_ptr = (uint8_t *)((unsigned char *)tzdbg.hyp_diag_buf +
 				tzdbg.hyp_diag_buf->ring_off);
+	log_len = tzdbg.hyp_debug_rw_buf_size - tzdbg.hyp_diag_buf->ring_off;
 
 	return __disp_hyp_log_stats(log_ptr, &log_start,
-			tzdbg.hyp_debug_rw_buf_size, count, TZDBG_HYP_LOG);
+			log_len, count, TZDBG_HYP_LOG);
 }
 
 static int _disp_qsee_log_stats(size_t count)
