@@ -562,6 +562,7 @@ static struct device_attribute power_supply_attrs[] = {
 	POWER_SUPPLY_ATTR(pd_authentication),
 	POWER_SUPPLY_ATTR(ffc_chg_term_current),
 	POWER_SUPPLY_ATTR(fastcharge_mode),
+	POWER_SUPPLY_ATTR(cc_toggle_enable),
 	POWER_SUPPLY_ATTR(fg_type),
 	POWER_SUPPLY_ATTR(charger_status),
 	/* Local extensions of type int64_t */
