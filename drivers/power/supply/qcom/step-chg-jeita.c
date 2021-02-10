@@ -325,6 +325,7 @@ static int get_step_chg_jeita_setting_from_profile(struct step_chg_info *chip)
 			return rc;
 		}
 	}
+}
 
 	rc = of_property_read_u32(profile_node, "qcom,fastchg-current-ma",
 					&max_fcc_ma);
