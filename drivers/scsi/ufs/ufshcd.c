@@ -8575,11 +8575,12 @@ static int ufs_get_device_desc(struct ufs_hba *hba,
 
 			if (err)
 				break;
-
-			if (d_lu_wb_buf_alloc) {
-				hba->dev_info.wb_config_lun = true;
-				break;
-			}
+			/*
+			*	if (d_lu_wb_buf_alloc) {
+			*		hba->dev_info.wb_config_lun = true;
+			*		break;
+			*	}
+			*/
 		}
 	}
 
