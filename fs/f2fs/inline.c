@@ -2,6 +2,7 @@
 /*
  * fs/f2fs/inline.c
  * Copyright (c) 2013, Intel Corporation
+ * Copyright (C) 2021 XiaoMi, Inc.
  * Authors: Huajun Li <huajun.li@intel.com>
  *          Haicheng Li <haicheng.li@intel.com>
  */
@@ -598,7 +599,7 @@ int f2fs_try_convert_inline_dir(struct inode *dir, struct dentry *dentry)
 	if (!err)
 		f2fs_put_page(ipage, 1);
 out_fname:
-	f2fs_free_filename(&fname);
+	fscrypt_free_filename(&fname);
 out:
 	f2fs_unlock_op(sbi);
 	return err;
