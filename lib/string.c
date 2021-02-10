@@ -260,6 +260,7 @@ char *stpcpy(char *__restrict__ dest, const char *__restrict__ src)
 }
 EXPORT_SYMBOL(stpcpy);
 
+/*
  * strscpy_pad() - Copy a C-string into a sized buffer
  * @dest: Where to copy the string to
  * @src: Where to copy the string from
