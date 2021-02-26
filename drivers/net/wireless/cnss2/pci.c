@@ -965,6 +965,7 @@ static void cnss_pci_handle_linkdown(struct cnss_pci_data *pci_priv)
 	/* Notify MHI about link down */
 	mhi_control_error(pci_priv->mhi_ctrl);
 
+    cnss_fatal_err("PCI link down, schedule recovery\n");
 	if (pci_dev->device == QCA6174_DEVICE_ID)
 		disable_irq(pci_dev->irq);
 
