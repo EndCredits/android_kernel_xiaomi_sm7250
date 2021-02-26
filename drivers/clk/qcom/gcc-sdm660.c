@@ -1750,7 +1750,7 @@ static struct clk_branch gcc_gpu_cfg_ahb_clk = {
 
 static struct clk_branch gpll0_out_msscc = {
 	.halt_reg = 0x5200c,
-	.halt_check = BRANCH_HALT_DELAY,
+	.halt_check = BRANCH_HALT,
 	.clkr = {
 		.enable_reg = 0x5200c,
 		.enable_mask = BIT(2),
@@ -1901,7 +1901,6 @@ static struct clk_branch gcc_mss_cfg_ahb_clk = {
 
 static struct clk_branch gcc_mss_mnoc_bimc_axi_clk = {
 	.halt_reg = 0x8a004,
-	.halt_check = BRANCH_VOTED,
 	.clkr = {
 		.enable_reg = 0x8a004,
 		.enable_mask = BIT(0),
@@ -2250,7 +2249,7 @@ static struct clk_branch gcc_ufs_phy_aux_hw_ctl_clk = {
 
 static struct clk_branch gcc_ufs_rx_symbol_0_clk = {
 	.halt_reg = 0x75014,
-	.halt_check = BRANCH_HALT_DELAY,
+	.halt_check = BRANCH_HALT,
 	.clkr = {
 		.enable_reg = 0x75014,
 		.enable_mask = BIT(0),
@@ -2263,7 +2262,7 @@ static struct clk_branch gcc_ufs_rx_symbol_0_clk = {
 
 static struct clk_branch gcc_ufs_rx_symbol_1_clk = {
 	.halt_reg = 0x7605c,
-	.halt_check = BRANCH_HALT_DELAY,
+	.halt_check = BRANCH_HALT,
 	.clkr = {
 		.enable_reg = 0x7605c,
 		.enable_mask = BIT(0),
@@ -2276,7 +2275,7 @@ static struct clk_branch gcc_ufs_rx_symbol_1_clk = {
 
 static struct clk_branch gcc_ufs_tx_symbol_0_clk = {
 	.halt_reg = 0x75010,
-	.halt_check = BRANCH_HALT_DELAY,
+	.halt_check = BRANCH_HALT,
 	.clkr = {
 		.enable_reg = 0x75010,
 		.enable_mask = BIT(0),
