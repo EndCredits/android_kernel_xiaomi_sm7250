@@ -385,12 +385,16 @@ static int bt_configure_gpios(int on)
 		}
 
 		rc = bt_enable_bt_reset_gpios_safely();
+		rc = gpio_direction_output(bt_reset_gpio, 1);
+
 		if (rc) {
 			BT_PWR_ERR("%s:bt_enable_bt_reset_gpios_safely failed",
 				__func__);
 			return rc;
 		}
 
+		bt_power_src_status[BT_RESET_GPIO] =
+			gpio_get_value(bt_reset_gpio);
 		msleep(50);
 		/*  Check  if  SW_CTRL  is  asserted  */
 		if  (bt_sw_ctrl_gpio  >=  0)  {
