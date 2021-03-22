@@ -1,8 +1,7 @@
 /*
  * random.c -- A strong random number generator
  *
- * Copyright (C) 2017 Jason A. Donenfeld <Jason@zx2c4.com>. All
- * Rights Reserved.
+ * Copyright (C) 2017-2022 Jason A. Donenfeld <Jason@zx2c4.com>. All Rights Reserved.
  *
  * Copyright Matt Mackall <mpm@selenic.com>, 2003, 2004, 2005
  *
@@ -78,12 +77,12 @@
  * an *estimate* of how many bits of randomness have been stored into
  * the random number generator's internal state.
  *
- * When random bytes are desired, they are obtained by taking the SHA
- * hash of the contents of the "entropy pool".  The SHA hash avoids
+ * When random bytes are desired, they are obtained by taking the BLAKE2s
+ * hash of the contents of the "entropy pool".  The BLAKE2s hash avoids
  * exposing the internal state of the entropy pool.  It is believed to
  * be computationally infeasible to derive any useful information
- * about the input of SHA from its output.  Even if it is possible to
- * analyze SHA in some clever way, as long as the amount of data
+ * about the input of BLAKE2s from its output.  Even if it is possible to
+ * analyze BLAKE2s in some clever way, as long as the amount of data
  * returned from the generator is less than the inherent entropy in
  * the pool, the output data is totally unpredictable.  For this
  * reason, the routine decreases its internal estimate of how many
@@ -93,7 +92,7 @@
  * If this estimate goes to zero, the routine can still generate
  * random numbers; however, an attacker may (at least in theory) be
  * able to infer the future output of the generator from prior
- * outputs.  This requires successful cryptanalysis of SHA, which is
+ * outputs.  This requires successful cryptanalysis of BLAKE2s, which is
  * not believed to be feasible, but there is a remote possibility.
  * Nonetheless, these numbers should be useful for the vast majority
  * of purposes.
@@ -347,7 +346,8 @@
 #include <linux/syscalls.h>
 #include <linux/completion.h>
 #include <linux/uuid.h>
-#include <crypto/chacha.h>
+#include <crypto/chacha20.h>
+#include <crypto/blake2s.h>
 
 #include <asm/processor.h>
 #include <linux/uaccess.h>
@@ -367,10 +367,7 @@
 #define INPUT_POOL_WORDS	(1 << (INPUT_POOL_SHIFT-5))
 #define OUTPUT_POOL_SHIFT	10
 #define OUTPUT_POOL_WORDS	(1 << (OUTPUT_POOL_SHIFT-5))
-#define EXTRACT_SIZE		10
-
-
-#define LONGS(x) (((x) + sizeof(unsigned long) - 1)/sizeof(unsigned long))
+#define EXTRACT_SIZE		(BLAKE2S_HASH_SIZE / 2)
 
 /*
  * To allow fractional bits to be tracked, the entropy_count field is
@@ -406,7 +403,7 @@ static int random_write_wakeup_bits = 28 * OUTPUT_POOL_WORDS;
  * Thanks to Colin Plumb for suggesting this.
  *
  * The mixing operation is much less sensitive than the output hash,
- * where we use SHA-1.  All that we want of mixing operation is that
+ * where we use BLAKE2s.  All that we want of mixing operation is that
  * it be a good non-cryptographic hash; i.e. it not produce collisions
  * when fed "random" data of the sort we expect to see.  As long as
  * the pool state differs for different inputs, we have preserved the
@@ -551,7 +548,7 @@ static void _mix_pool_bytes(struct entropy_store *r, const void *in,
 	unsigned long i, tap1, tap2, tap3, tap4, tap5;
 	int input_rotate;
 	int wordmask = r->poolinfo->poolwords - 1;
-	const unsigned char *bytes = in;
+	const char *bytes = in;
 	__u32 w;
 
 	tap1 = r->poolinfo->tap1;
@@ -763,6 +760,7 @@ static int credit_entropy_bits_safe(struct entropy_store *r, int nbits)
 
 static DECLARE_WAIT_QUEUE_HEAD(crng_init_wait);
 
+#ifdef CONFIG_NUMA
 /*
  * Hack to deal with crazy userspace progams when they are all trying
  * to access /dev/urandom in parallel.  The programs are almost
@@ -770,6 +768,7 @@ static DECLARE_WAIT_QUEUE_HEAD(crng_init_wait);
  * their brain damage.
  */
 static struct crng_state **crng_node_pool __read_mostly;
+#endif
 
 static void invalidate_batched_entropy(void);
 static void numa_crng_init(void);
@@ -817,7 +816,7 @@ static bool __init crng_init_try_arch_early(struct crng_state *crng)
 	return arch_init;
 }
 
-static void crng_initialize_secondary(struct crng_state *crng)
+static void __maybe_unused crng_initialize_secondary(struct crng_state *crng)
 {
 	memcpy(&crng->state[0], "expand 32-byte k", 16);
 	_get_random_bytes(&crng->state[4], sizeof(__u32) * 12);
@@ -829,11 +828,11 @@ static void __init crng_initialize_primary(struct crng_state *crng)
 {
 	memcpy(&crng->state[0], "expand 32-byte k", 16);
 	_extract_entropy(&input_pool, &crng->state[4], sizeof(__u32) * 12, 0);
-	if (crng_init_try_arch_early(crng) && trust_cpu && crng_init < 2) {
+	if (crng_init_try_arch_early(crng) && trust_cpu) {
 		invalidate_batched_entropy();
 		numa_crng_init();
 		crng_init = 2;
-		pr_notice("crng init done (trusting CPU's manufacturer)\n");
+		pr_notice("crng done (trusting CPU's manufacturer)\n");
 	}
 	crng->init_time = jiffies - CRNG_RESEED_INTERVAL - 1;
 }
@@ -868,6 +867,7 @@ static void crng_finalize_init(struct crng_state *crng)
 	}
 }
 
+#ifdef CONFIG_NUMA
 static void do_numa_crng_init(struct work_struct *work)
 {
 	int i;
@@ -894,24 +894,29 @@ static DECLARE_WORK(numa_crng_init_work, do_numa_crng_init);
 
 static void numa_crng_init(void)
 {
-	if (IS_ENABLED(CONFIG_NUMA))
-		schedule_work(&numa_crng_init_work);
+	schedule_work(&numa_crng_init_work);
 }
 
 static struct crng_state *select_crng(void)
 {
-	if (IS_ENABLED(CONFIG_NUMA)) {
-		struct crng_state **pool;
-		int nid = numa_node_id();
+	struct crng_state **pool;
+	int nid = numa_node_id();
 
-		/* pairs with cmpxchg_release() in do_numa_crng_init() */
-		pool = READ_ONCE(crng_node_pool);
-		if (pool && pool[nid])
-			return pool[nid];
-	}
+	/* pairs with cmpxchg_release() in do_numa_crng_init() */
+	pool = READ_ONCE(crng_node_pool);
+	if (pool && pool[nid])
+		return pool[nid];
 
 	return &primary_crng;
 }
+#else
+static void numa_crng_init(void) {}
+
+static struct crng_state *select_crng(void)
+{
+	return &primary_crng;
+}
+#endif
 
 /*
  * crng_fast_load() can be called by code in the interrupt service
@@ -1389,56 +1394,49 @@ retry:
  */
 static void extract_buf(struct entropy_store *r, __u8 *out)
 {
-	int i;
-	union {
-		__u32 w[5];
-		unsigned long l[LONGS(20)];
-	} hash;
-	__u32 workspace[SHA_WORKSPACE_WORDS];
+	struct blake2s_state state __aligned(__alignof__(unsigned long));
+	u8 hash[BLAKE2S_HASH_SIZE];
+	unsigned long *salt;
 	unsigned long flags;
+
+	blake2s_init(&state, sizeof(hash));
 
 	/*
 	 * If we have an architectural hardware random number
-	 * generator, use it for SHA's initial vector
+	 * generator, use it for BLAKE2's salt & personal fields.
 	 */
-	sha_init(hash.w);
-	for (i = 0; i < LONGS(20); i++) {
+	for (salt = (unsigned long *)&state.h[4];
+	     salt < (unsigned long *)&state.h[8]; ++salt) {
 		unsigned long v;
 		if (!arch_get_random_long(&v))
 			break;
-		hash.l[i] = v;
+		*salt ^= v;
 	}
 
-	/* Generate a hash across the pool, 16 words (512 bits) at a time */
+	/* Generate a hash across the pool */
 	spin_lock_irqsave(&r->lock, flags);
-	for (i = 0; i < r->poolinfo->poolwords; i += 16)
-		sha_transform(hash.w, (__u8 *)(r->pool + i), workspace);
+	blake2s_update(&state, (const u8 *)r->pool,
+		       r->poolinfo->poolwords * sizeof(*r->pool));
+	blake2s_final(&state, hash); /* final zeros out state */
 
 	/*
 	 * We mix the hash back into the pool to prevent backtracking
 	 * attacks (where the attacker knows the state of the pool
 	 * plus the current outputs, and attempts to find previous
-	 * ouputs), unless the hash function can be inverted. By
-	 * mixing at least a SHA1 worth of hash data back, we make
+	 * outputs), unless the hash function can be inverted. By
+	 * mixing at least a hash worth of hash data back, we make
 	 * brute-forcing the feedback as hard as brute-forcing the
 	 * hash.
 	 */
-	__mix_pool_bytes(r, hash.w, sizeof(hash.w));
+	__mix_pool_bytes(r, hash, sizeof(hash));
 	spin_unlock_irqrestore(&r->lock, flags);
 
-	memzero_explicit(workspace, sizeof(workspace));
-
-	/*
-	 * In case the hash function has some recognizable output
-	 * pattern, we fold it in half. Thus, we always feed back
-	 * twice as much data as we output.
+	/* Note that EXTRACT_SIZE is half of hash size here, because above
+	 * we've dumped the full length back into mixer. By reducing the
+	 * amount that we emit, we retain a level of forward secrecy.
 	 */
-	hash.w[0] ^= hash.w[3];
-	hash.w[1] ^= hash.w[4];
-	hash.w[2] ^= rol32(hash.w[2], 16);
-
-	memcpy(out, &hash, EXTRACT_SIZE);
-	memzero_explicit(&hash, sizeof(hash));
+	memcpy(out, hash, EXTRACT_SIZE);
+	memzero_explicit(hash, sizeof(hash));
 }
 
 static ssize_t _extract_entropy(struct entropy_store *r, void *buf,
@@ -2296,12 +2294,8 @@ void add_hwgenerator_randomness(const char *buffer, size_t count,
 	struct entropy_store *poolp = &input_pool;
 
 	if (unlikely(crng_init == 0)) {
-		size_t ret = crng_fast_load(buffer, count);
-		mix_pool_bytes(poolp, buffer, ret);
-		count -= ret;
-		buffer += ret;
-		if (!count || crng_init == 0)
-			return;
+		crng_fast_load(buffer, count);
+		return;
 	}
 
 	/* Suspend writing if we're above the trickle threshold.
