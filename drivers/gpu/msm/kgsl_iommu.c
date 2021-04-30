@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2011-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2021, The Linux Foundation. All rights reserved.
  * Copyright (C) 2021 XiaoMi, Inc.
  */
 
@@ -211,8 +211,9 @@ static void kgsl_iommu_remove_global(struct kgsl_mmu *mmu,
 static void kgsl_iommu_add_global(struct kgsl_mmu *mmu,
 		struct kgsl_memdesc *memdesc, const char *name)
 {
-	u32 bit, start = 0;
+	u32 bit;
 	u64 size = kgsl_memdesc_footprint(memdesc);
+	int start = 0;
 
 	if (memdesc->gpuaddr != 0)
 		return;
@@ -1148,7 +1149,7 @@ void _enable_gpuhtw_llc(struct kgsl_mmu *mmu, struct kgsl_iommu_pt *iommu_pt)
 	int ret;
 
 	/* GPU pagetable walk LLC slice not enabled */
-	if (IS_ERR(adreno_dev->gpuhtw_llc_slice))
+	if (IS_ERR_OR_NULL(adreno_dev->gpuhtw_llc_slice))
 		return;
 
 	/* Domain attribute to enable system cache for GPU pagetable walks */
@@ -2476,6 +2477,35 @@ out:
 	return ret;
 }
 
+static int get_gpuaddr(struct kgsl_pagetable *pagetable,
+		struct kgsl_memdesc *memdesc, u64 start, u64 end,
+		u64 size, unsigned int align)
+{
+	u64 addr;
+	int ret;
+
+	spin_lock(&pagetable->lock);
+	addr = _get_unmapped_area(pagetable, start, end, size, align);
+	if (addr == (u64) -ENOMEM) {
+		spin_unlock(&pagetable->lock);
+		return -ENOMEM;
+	}
+
+	/*
+	 * This path is only called in a non-SVM path with locks so we can be
+	 * sure we aren't racing with anybody so we don't need to worry about
+	 * taking the lock
+	 */
+	ret = _insert_gpuaddr(pagetable, addr, size);
+	spin_unlock(&pagetable->lock);
+
+	if (ret == 0) {
+		memdesc->gpuaddr = addr;
+		memdesc->pagetable = pagetable;
+	}
+
+	return ret;
+}
 
 static int kgsl_iommu_get_gpuaddr(struct kgsl_pagetable *pagetable,
 		struct kgsl_memdesc *memdesc)
