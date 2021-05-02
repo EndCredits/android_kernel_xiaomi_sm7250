@@ -591,4 +591,5 @@ static int __init reboot_setup(char *str)
 	}
 	return 1;
 }
+}
 __setup("reboot=", reboot_setup);
