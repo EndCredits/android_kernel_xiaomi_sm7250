@@ -4564,7 +4564,7 @@ kgsl_gpumem_vm_close(struct vm_area_struct *vma)
 		atomic_long_sub(entry->memdesc.size,
 				&entry->priv->gpumem_mapped);
 
-	kgsl_mem_entry_put_deferred(entry);
+	kgsl_mem_entry_set_pend(entry);
 }
 
 static const struct vm_operations_struct kgsl_gpumem_vm_ops = {
