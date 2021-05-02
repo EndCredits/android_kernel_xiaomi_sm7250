@@ -498,4 +498,6 @@ static inline int bdi_rw_congested(struct backing_dev_info *bdi)
 				  (1 << WB_async_congested));
 }
 
+static const char *bdi_unknown_name = "(unknown)";
+
 #endif	/* _LINUX_BACKING_DEV_H */
