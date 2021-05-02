@@ -312,19 +312,6 @@ EXPORT_SYMBOL(stpcpy);
  * Return: The number of characters copied (not including the trailing
  *         %NUL) or -E2BIG if the destination buffer wasn't big enough.
  */
-ssize_t strscpy_pad(char *dest, const char *src, size_t count)
-{
-	ssize_t written;
-
-	written = strscpy(dest, src, count);
-	if (written < 0 || written == count - 1)
-		return written;
-
-	memset(dest + written + 1, 0, count - written - 1);
-
-	return written;
-}
-EXPORT_SYMBOL(strscpy_pad);
 
 #ifndef __HAVE_ARCH_STRCAT
 /**
