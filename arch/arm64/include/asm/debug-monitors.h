@@ -101,6 +101,8 @@ void unregister_step_hook(struct step_hook *hook);
 struct break_hook {
 	struct list_head node;
 	int (*fn)(struct pt_regs *regs, unsigned int esr);
+	u32 esr_val;
+	u32 esr_mask;
 	u16 imm;
 	u16 mask; /* These bits are ignored when comparing with imm */
 };
