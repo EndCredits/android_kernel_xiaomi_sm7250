@@ -629,6 +629,10 @@ config XLOGCHAR
 	help
 	  Implements a high performance log driver
 
+source "drivers/char/lrng/Kconfig"
+
+endmenu
+
 config RANDOM_TRUST_CPU
 	bool "Trust the CPU manufacturer to initialize Linux's CRNG"
 	depends on X86 || S390 || PPC
