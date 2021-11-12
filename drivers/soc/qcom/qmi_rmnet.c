@@ -616,7 +616,6 @@ qmi_rmnet_setup_client(void *port, struct qmi_info *qmi, struct tcmsg *tcm)
 		if (!qmi)
 			return -ENOMEM;
 
-		qmi->ws = wakeup_source_register(NULL, "RMNET_DFC");
 		rmnet_init_qmi_pt(port, qmi);
 	}
 
@@ -666,7 +665,6 @@ __qmi_rmnet_delete_client(void *port, struct qmi_info *qmi, int idx)
 
 	if (!qmi_rmnet_has_client(qmi) && !qmi_rmnet_has_pending(qmi)) {
 		rmnet_reset_qmi_pt(port);
-		wakeup_source_unregister(qmi->ws);
 		kfree(qmi);
 		return 0;
 	}
@@ -736,7 +734,6 @@ void qmi_rmnet_change_link(struct net_device *dev, void *port, void *tcm_pt)
 			    !qmi_rmnet_has_client(qmi) &&
 			    !qmi_rmnet_has_pending(qmi)) {
 				rmnet_reset_qmi_pt(port);
-				wakeup_source_unregister(qmi->ws);
 				kfree(qmi);
 			}
 		} else if (tcm->tcm_ifindex & FLAG_POWERSAVE_MASK) {
@@ -1209,22 +1206,6 @@ static void qmi_rmnet_work_restart(void *port)
 	rcu_read_unlock();
 }
 
-static void dfc_wakelock_acquire(struct qmi_info *qmi)
-{
-	if (qmi && !qmi->wakelock_active) {
-		__pm_stay_awake(qmi->ws);
-		qmi->wakelock_active = true;
-	}
-}
-
-static void dfc_wakelock_release(struct qmi_info *qmi)
-{
-	if (qmi && qmi->wakelock_active) {
-		__pm_relax(qmi->ws);
-		qmi->wakelock_active = false;
-	}
-}
-
 static void qmi_rmnet_check_stats(struct work_struct *work)
 {
 	struct rmnet_powersave_work *real_work;
@@ -1242,8 +1223,6 @@ static void qmi_rmnet_check_stats(struct work_struct *work)
 	qmi = (struct qmi_info *)rmnet_get_qmi_pt(real_work->port);
 	if (unlikely(!qmi))
 		return;
-
-	dfc_wakelock_release(qmi);
 
 	rmnet_get_packets(real_work->port, &rx, &tx);
 	rxd = rx - real_work->old_rx_pkts;
@@ -1305,7 +1284,8 @@ static void qmi_rmnet_check_stats(struct work_struct *work)
 end:
 	rcu_read_lock();
 	if (!rmnet_work_quit)
-		queue_delayed_work(rmnet_ps_wq, &real_work->work, PS_INTERVAL);
+		queue_delayed_work(rmnet_ps_wq, &real_work->work,
+				   PS_INTERVAL);
 	rcu_read_unlock();
 }
 
@@ -1373,6 +1353,13 @@ static void qmi_rmnet_check_stats_2(struct work_struct *work)
 
 		return;
 	}
+end:
+	rcu_read_lock();
+	if (!rmnet_work_quit)
+		queue_delayed_work(rmnet_ps_wq, &real_work->work,
+				   PS_INTERVAL);
+
+	rcu_read_unlock();
 }
 
 static void qmi_rmnet_work_set_active(void *port, int status)
@@ -1407,10 +1394,10 @@ void qmi_rmnet_work_init(void *port)
 	}
 
 	if (dfc_qmap && dfc_ps_ext)
-		INIT_DEFERRABLE_WORK(&rmnet_work->work,
+		INIT_DELAYED_WORK(&rmnet_work->work,
 				     qmi_rmnet_check_stats_2);
 	else
-		INIT_DEFERRABLE_WORK(&rmnet_work->work, qmi_rmnet_check_stats);
+		INIT_DELAYED_WORK(&rmnet_work->work, qmi_rmnet_check_stats);
 	rmnet_work->port = port;
 	rmnet_get_packets(rmnet_work->port, &rmnet_work->old_rx_pkts,
 			  &rmnet_work->old_tx_pkts);
@@ -1451,7 +1438,6 @@ void qmi_rmnet_work_exit(void *port)
 	rmnet_ps_wq = NULL;
 	kfree(rmnet_work);
 	rmnet_work = NULL;
-	dfc_wakelock_release((struct qmi_info *)rmnet_get_qmi_pt(port));
 }
 EXPORT_SYMBOL(qmi_rmnet_work_exit);
 
