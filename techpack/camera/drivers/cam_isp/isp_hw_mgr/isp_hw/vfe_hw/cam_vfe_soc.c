@@ -85,9 +85,6 @@ static int cam_vfe_get_dt_properties(struct cam_hw_soc_info *soc_info)
 		break;
 	}
 
-	vfe_soc_private->dsp_disabled = of_property_read_bool(of_node,
-		"dsp-disabled");
-
 end:
 	return rc;
 }

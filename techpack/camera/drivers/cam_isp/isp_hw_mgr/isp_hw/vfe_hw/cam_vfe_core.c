@@ -604,13 +604,6 @@ int cam_vfe_process_cmd(void *hw_priv, uint32_t cmd_type,
 	case CAM_ISP_HW_CMD_BW_CONTROL:
 	case CAM_ISP_HW_CMD_CORE_CONFIG:
 	case CAM_ISP_HW_CMD_BW_UPDATE_V2:
-	case CAM_ISP_HW_CMD_DUMP_HW:
-	case CAM_ISP_HW_CMD_QUERY:
-	case CAM_ISP_HW_CMD_QUERY_DSP_MODE:
-	case CAM_ISP_HW_CMD_CAMIF_DATA:
-	case CAM_ISP_HW_CMD_GET_IRQ_REGISTER_DUMP:
-	case CAM_ISP_HW_CMD_SET_NUM_OF_ACQUIRED_RESOURCE:
-	case CAM_ISP_HW_CMD_GET_NUM_OF_ACQUIRED_RESOURCE:
 		rc = core_info->vfe_top->hw_ops.process_cmd(
 			core_info->vfe_top->top_priv, cmd_type, cmd_args,
 			arg_size);
@@ -622,7 +615,6 @@ int cam_vfe_process_cmd(void *hw_priv, uint32_t cmd_type,
 	case CAM_ISP_HW_CMD_UBWC_UPDATE:
 	case CAM_ISP_HW_CMD_UBWC_UPDATE_V2:
 	case CAM_ISP_HW_CMD_WM_CONFIG_UPDATE:
-	case CAM_ISP_HW_CMD_DUMP_BUS_INFO:
 		rc = core_info->vfe_bus->hw_ops.process_cmd(
 			core_info->vfe_bus->bus_priv, cmd_type, cmd_args,
 			arg_size);

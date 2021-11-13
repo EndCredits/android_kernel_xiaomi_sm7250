@@ -580,31 +580,6 @@ int cam_cdm_process_cmd(void *hw_priv,
 			*((uint32_t *)cmd_args));
 		break;
 	}
-	case CAM_CDM_HW_INTF_CMD_HANG_DETECT: {
-		uint32_t *handle = cmd_args;
-		int idx;
-		struct cam_cdm_client *client;
-
-		if (sizeof(uint32_t) != arg_size) {
-			CAM_ERR(CAM_CDM,
-				"Invalid CDM cmd %d size=%x for handle=%x",
-				cmd, arg_size, *handle);
-				return -EINVAL;
-		}
-
-		idx = CAM_CDM_GET_CLIENT_IDX(*handle);
-		mutex_lock(&cdm_hw->hw_mutex);
-		client = core->clients[idx];
-		if ((!client) || (*handle != client->handle)) {
-			CAM_ERR(CAM_CDM, "Invalid client %pK hdl=%x",
-				client, *handle);
-			mutex_unlock(&cdm_hw->hw_mutex);
-			break;
-		}
-		rc = cam_hw_cdm_hang_detect(cdm_hw, *handle);
-		mutex_unlock(&cdm_hw->hw_mutex);
-		break;
-	}
 	default:
 		CAM_ERR(CAM_CDM, "CDM HW intf command not valid =%d", cmd);
 		break;

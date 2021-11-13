@@ -120,11 +120,35 @@ int cam_cci_init(struct v4l2_subdev *sd,
 	}
 
 	if (cci_dev->ref_count++) {
-		rc = cam_cci_init_master(cci_dev, master);
-		if (rc) {
-			CAM_ERR(CAM_CCI, "Failed to init: Master: %d: rc: %d",
-				master, rc);
-			cci_dev->ref_count--;
+		CAM_DBG(CAM_CCI, "ref_count %d", cci_dev->ref_count);
+		CAM_DBG(CAM_CCI, "master %d", master);
+		if (master < MASTER_MAX && master >= 0) {
+			mutex_lock(&cci_dev->cci_master_info[master].mutex);
+			flush_workqueue(cci_dev->write_wq[master]);
+			/* Re-initialize the completion */
+			reinit_completion(
+			&cci_dev->cci_master_info[master].reset_complete);
+			reinit_completion(
+			&cci_dev->cci_master_info[master].rd_done);
+			for (i = 0; i < NUM_QUEUES; i++)
+				reinit_completion(
+				&cci_dev->cci_master_info[master].report_q[i]);
+			/* Set reset pending flag to true */
+			cci_dev->cci_master_info[master].reset_pending = true;
+			/* Set proper mask to RESET CMD address */
+			if (master == MASTER_0)
+				cam_io_w_mb(CCI_M0_RESET_RMSK,
+					base + CCI_RESET_CMD_ADDR);
+			else
+				cam_io_w_mb(CCI_M1_RESET_RMSK,
+					base + CCI_RESET_CMD_ADDR);
+			/* wait for reset done irq */
+			rc = wait_for_completion_timeout(
+			&cci_dev->cci_master_info[master].reset_complete,
+				CCI_TIMEOUT);
+			if (rc <= 0)
+				CAM_ERR(CAM_CCI, "wait failed %d", rc);
+			mutex_unlock(&cci_dev->cci_master_info[master].mutex);
 		}
 		CAM_DBG(CAM_CCI, "ref_count %d, master: %d",
 			cci_dev->ref_count, master);
@@ -163,10 +187,32 @@ int cam_cci_init(struct v4l2_subdev *sd,
 	cci_dev->payload_size = MSM_CCI_WRITE_DATA_PAYLOAD_SIZE_11;
 	cci_dev->support_seq_write = 1;
 
-	rc = cam_cci_init_master(cci_dev, master);
-	if (rc) {
-		CAM_ERR(CAM_CCI, "Failed to init: Master: %d, rc: %d",
-			master, rc);
+	for (i = 0; i < NUM_MASTERS; i++) {
+		for (j = 0; j < NUM_QUEUES; j++) {
+			if (j == QUEUE_0)
+				cci_dev->cci_i2c_queue_info[i][j].max_queue_size
+					= CCI_I2C_QUEUE_0_SIZE;
+			else
+				cci_dev->cci_i2c_queue_info[i][j].max_queue_size
+					= CCI_I2C_QUEUE_1_SIZE;
+
+			CAM_DBG(CAM_CCI, "CCI Master[%d] :: Q0 : %d Q1 : %d", i,
+			cci_dev->cci_i2c_queue_info[i][j].max_queue_size,
+			cci_dev->cci_i2c_queue_info[i][j].max_queue_size);
+		}
+	}
+
+	cci_dev->cci_master_info[master].reset_pending = true;
+	cam_io_w_mb(CCI_RESET_CMD_RMSK, base +
+			CCI_RESET_CMD_ADDR);
+	cam_io_w_mb(0x1, base + CCI_RESET_CMD_ADDR);
+	rc = wait_for_completion_timeout(
+		&cci_dev->cci_master_info[master].reset_complete,
+		CCI_TIMEOUT);
+	if (rc <= 0) {
+		CAM_ERR(CAM_CCI, "wait_for_completion_timeout");
+		if (rc == 0)
+			rc = -ETIMEDOUT;
 		goto reset_complete_failed;
 	}
 
