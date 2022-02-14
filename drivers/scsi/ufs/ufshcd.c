@@ -8581,9 +8581,7 @@ static int ufs_get_device_desc(struct ufs_hba *hba,
 			if (err)
 				break;
 
-			res = wb_buf[0] << 24 | wb_buf[1] << 16 |
-				wb_buf[2] << 8 | wb_buf[3];
-			if (res) {
+			if (d_lu_wb_buf_alloc) {
 				break;
 			}
 		}

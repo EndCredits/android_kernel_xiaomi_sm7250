@@ -848,16 +848,6 @@ static void gsi_handle_irq(void)
 
 	if (type & GSI_EE_n_CNTXT_TYPE_IRQ_GENERAL_BMSK)
 		gsi_handle_general(ee);
-
-	if (unlikely(++cnt > GSI_ISR_MAX_ITER)) {
-		/*
-		 * Max number of spurious interrupts from hardware.
-		 * Unexpected hardware state.
-		 */
-		GSIERR("Too many spurious interrupt from GSI HW\n");
-		GSI_ASSERT();
-	}
-
 }
 
 static irqreturn_t gsi_isr(int irq, void *ctxt)
