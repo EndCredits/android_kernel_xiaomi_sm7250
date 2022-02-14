@@ -392,7 +392,8 @@ void drm_connector_cleanup(struct drm_connector *connector)
 	/* The connector should have been removed from userspace long before
 	 * it is finally destroyed.
 	 */
-	if (WARN_ON(connector->registered))
+	if (WARN_ON(connector->registration_state ==
+		    DRM_CONNECTOR_REGISTERED))
 		drm_connector_unregister(connector);
 
 	if (connector->tile_group) {
@@ -449,7 +450,7 @@ int drm_connector_register(struct drm_connector *connector)
 		return 0;
 
 	mutex_lock(&connector->mutex);
-	if (connector->registered)
+	if (connector->registration_state != DRM_CONNECTOR_INITIALIZING)
 		goto unlock;
 
 	ret = drm_sysfs_connector_add(connector);
@@ -469,7 +470,7 @@ int drm_connector_register(struct drm_connector *connector)
 
 	drm_mode_object_register(connector->dev, &connector->base);
 
-	connector->registered = true;
+	connector->registration_state = DRM_CONNECTOR_REGISTERED;
 	goto unlock;
 
 err_debugfs:
@@ -491,7 +492,7 @@ EXPORT_SYMBOL(drm_connector_register);
 void drm_connector_unregister(struct drm_connector *connector)
 {
 	mutex_lock(&connector->mutex);
-	if (!connector->registered) {
+	if (connector->registration_state != DRM_CONNECTOR_REGISTERED) {
 		mutex_unlock(&connector->mutex);
 		return;
 	}
@@ -502,7 +503,7 @@ void drm_connector_unregister(struct drm_connector *connector)
 	drm_sysfs_connector_remove(connector);
 	drm_debugfs_connector_remove(connector);
 
-	connector->registered = false;
+	connector->registration_state = DRM_CONNECTOR_UNREGISTERED;
 	mutex_unlock(&connector->mutex);
 }
 EXPORT_SYMBOL(drm_connector_unregister);
@@ -860,8 +861,8 @@ static const struct drm_prop_enum_list dp_colorspaces[] = {
 	{ DRM_MODE_COLORIMETRY_OPRGB, "opRGB" },
 	{ DRM_MODE_COLORIMETRY_DCI_P3_RGB_D65, "DCI-P3_RGB_D65" },
 	/* DP MSA Colorimetry */
-	{ DRM_MODE_DP_COLORIMETRY_BT601_YCC, "BT601_YCC" },
-	{ DRM_MODE_DP_COLORIMETRY_BT709_YCC, "BT709_YCC" },
+	{ DRM_MODE_DP_COLORIMETRY_BT601_YCC, "YCBCR_ITU_601" },
+	{ DRM_MODE_DP_COLORIMETRY_BT709_YCC, "YCBCR_ITU_709" },
 	{ DRM_MODE_DP_COLORIMETRY_SRGB, "sRGB" },
 	{ DRM_MODE_DP_COLORIMETRY_RGB_WIDE_GAMUT, "RGB Wide Gamut" },
 	{ DRM_MODE_DP_COLORIMETRY_SCRGB, "scRGB" },
@@ -1480,7 +1481,7 @@ int drm_mode_create_colorspace_property(struct drm_connector *connector)
 		if (!prop)
 			return -ENOMEM;
 	} else if (connector->connector_type == DRM_MODE_CONNECTOR_eDP ||
-		connector->connector_type == DRM_MODE_CONNECTOR_DisplayPort) {
+		   connector->connector_type == DRM_MODE_CONNECTOR_DisplayPort) {
 		prop = drm_property_create_enum(dev, DRM_MODE_PROP_ENUM,
 						"Colorspace", dp_colorspaces,
 						ARRAY_SIZE(dp_colorspaces));

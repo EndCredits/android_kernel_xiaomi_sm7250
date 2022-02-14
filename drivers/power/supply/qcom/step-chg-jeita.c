@@ -65,6 +65,7 @@ struct step_chg_info {
 	bool			vbat_avg_based_step_chg;
 	bool			batt_missing;
 	bool			taper_fcc;
+	bool			jeita_fcc_scaling;
 	int			jeita_fcc_index;
 	int			jeita_fv_index;
 	int			jeita_ffc_fv_index;
@@ -72,6 +73,10 @@ struct step_chg_info {
 	int			dynamic_ffc_fv_index;
 	int			step_index;
 	int			get_config_retry_count;
+	int			jeita_last_update_temp;
+	int			jeita_fcc_scaling_temp_threshold[2];
+	long			jeita_max_fcc_ua;
+	long			jeita_fcc_step_size;
 
 	struct step_chg_cfg	*step_chg_config;
 	struct jeita_fcc_cfg	*jeita_fcc_config;
@@ -262,7 +267,7 @@ static int get_step_chg_jeita_setting_from_profile(struct step_chg_info *chip)
 	u32 max_fv_uv, max_fcc_ma;
 	const char *batt_type_str;
 	const __be32 *handle;
-	int batt_id_ohms, rc;
+	int batt_id_ohms, rc, hysteresis[2] = {0};
 	union power_supply_propval prop = {0, };
 
 	handle = of_get_property(chip->dev->of_node,
@@ -326,6 +331,7 @@ static int get_step_chg_jeita_setting_from_profile(struct step_chg_info *chip)
 		pr_err("max-fastchg-current-ma reading failed, rc=%d\n", rc);
 		return rc;
 	}
+	chip->jeita_max_fcc_ua = max_fcc_ma * 1000;
 
 	chip->taper_fcc = of_property_read_bool(profile_node, "qcom,taper-fcc");
 
@@ -815,6 +821,10 @@ static int handle_jeita(struct step_chg_info *chip)
 		chip->sw_jeita_enable = false;
 	else
 		chip->sw_jeita_enable = pval.intval;
+
+	/* Handle jeita-fcc-scaling if enabled */
+	if (chip->jeita_fcc_scaling)
+		handle_jeita_fcc_scaling(chip);
 
 	if (!chip->sw_jeita_enable || !chip->sw_jeita_cfg_valid) {
 		if (chip->fcc_votable)

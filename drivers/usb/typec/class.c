@@ -499,8 +499,10 @@ typec_register_altmode(struct device *parent,
 	int ret;
 
 	alt = kzalloc(sizeof(*alt), GFP_KERNEL);
-	if (!alt)
+	if (!alt) {
+		altmode_id_remove(parent, id);
 		return ERR_PTR(-ENOMEM);
+	}
 
 	alt->adev.svid = desc->svid;
 	alt->adev.mode = desc->mode;
@@ -1378,7 +1380,8 @@ void typec_set_pwr_opmode(struct typec_port *port,
 {
 	struct device *partner_dev;
 
-	if (port->pwr_opmode == opmode)
+	if ((port->pwr_opmode == opmode) || (opmode < TYPEC_PWR_MODE_USB) ||
+						(opmode > TYPEC_PWR_MODE_MAX))
 		return;
 
 	port->pwr_opmode = opmode;

@@ -1623,6 +1623,7 @@ static void iwl_mvm_recalc_multicast(struct iwl_mvm *mvm)
 	struct iwl_mvm_mc_iter_data iter_data = {
 		.mvm = mvm,
 	};
+	int ret;
 
 	lockdep_assert_held(&mvm->mutex);
 
@@ -1632,6 +1633,22 @@ static void iwl_mvm_recalc_multicast(struct iwl_mvm *mvm)
 	ieee80211_iterate_active_interfaces_atomic(
 		mvm->hw, IEEE80211_IFACE_ITER_NORMAL,
 		iwl_mvm_mc_iface_iterator, &iter_data);
+
+	/*
+	 * Send a (synchronous) ech command so that we wait for the
+	 * multiple asynchronous MCAST_FILTER_CMD commands sent by
+	 * the interface iterator. Otherwise, we might get here over
+	 * and over again (by userspace just sending a lot of these)
+	 * and the CPU can send them faster than the firmware can
+	 * process them.
+	 * Note that the CPU is still faster - but with this we'll
+	 * actually send fewer commands overall because the CPU will
+	 * not schedule the work in mac80211 as frequently if it's
+	 * still running when rescheduled (possibly multiple times).
+	 */
+	ret = iwl_mvm_send_cmd_pdu(mvm, ECHO_CMD, 0, 0, NULL);
+	if (ret)
+		IWL_ERR(mvm, "Failed to synchronize multicast groups update\n");
 }
 
 static u64 iwl_mvm_prepare_multicast(struct ieee80211_hw *hw,
@@ -2001,10 +2018,6 @@ static void iwl_mvm_cfg_he_sta(struct iwl_mvm *mvm,
 			sta_ctxt_cmd.htc_flags |=
 				cpu_to_le32(IWL_HE_HTC_LINK_ADAP_BOTH);
 	}
-	if (sta->he_cap.he_cap_elem.mac_cap_info[2] &
-	    IEEE80211_HE_MAC_CAP2_UL_MU_RESP_SCHED)
-		sta_ctxt_cmd.htc_flags |=
-			cpu_to_le32(IWL_HE_HTC_UL_MU_RESP_SCHED);
 	if (sta->he_cap.he_cap_elem.mac_cap_info[2] & IEEE80211_HE_MAC_CAP2_BSR)
 		sta_ctxt_cmd.htc_flags |= cpu_to_le32(IWL_HE_HTC_BSR_SUPP);
 	if (sta->he_cap.he_cap_elem.mac_cap_info[3] &
@@ -2066,6 +2079,46 @@ static void iwl_mvm_cfg_he_sta(struct iwl_mvm *mvm,
 		}
 
 		flags |= STA_CTXT_HE_PACKET_EXT;
+	} else if ((sta->he_cap.he_cap_elem.phy_cap_info[9] &
+		    IEEE80211_HE_PHY_CAP9_NOMIMAL_PKT_PADDING_MASK) !=
+		  IEEE80211_HE_PHY_CAP9_NOMIMAL_PKT_PADDING_RESERVED) {
+		int low_th = -1;
+		int high_th = -1;
+
+		/* Take the PPE thresholds from the nominal padding info */
+		switch (sta->he_cap.he_cap_elem.phy_cap_info[9] &
+			IEEE80211_HE_PHY_CAP9_NOMIMAL_PKT_PADDING_MASK) {
+		case IEEE80211_HE_PHY_CAP9_NOMIMAL_PKT_PADDING_0US:
+			low_th = IWL_HE_PKT_EXT_NONE;
+			high_th = IWL_HE_PKT_EXT_NONE;
+			break;
+		case IEEE80211_HE_PHY_CAP9_NOMIMAL_PKT_PADDING_8US:
+			low_th = IWL_HE_PKT_EXT_BPSK;
+			high_th = IWL_HE_PKT_EXT_NONE;
+			break;
+		case IEEE80211_HE_PHY_CAP9_NOMIMAL_PKT_PADDING_16US:
+			low_th = IWL_HE_PKT_EXT_NONE;
+			high_th = IWL_HE_PKT_EXT_BPSK;
+			break;
+		}
+
+		/* Set the PPE thresholds accordingly */
+		if (low_th >= 0 && high_th >= 0) {
+			u8 ***pkt_ext_qam =
+				(void *)sta_ctxt_cmd.pkt_ext.pkt_ext_qam_th;
+
+			for (i = 0; i < MAX_HE_SUPP_NSS; i++) {
+				u8 bw;
+
+				for (bw = 0; bw < MAX_HE_CHANNEL_BW_INDX;
+				     bw++) {
+					pkt_ext_qam[i][bw][0] = low_th;
+					pkt_ext_qam[i][bw][1] = high_th;
+				}
+			}
+
+			flags |= STA_CTXT_HE_PACKET_EXT;
+		}
 	}
 	rcu_read_unlock();
 
@@ -2880,7 +2933,7 @@ static int iwl_mvm_mac_sta_state(struct ieee80211_hw *hw,
 
 	/* this would be a mac80211 bug ... but don't crash */
 	if (WARN_ON_ONCE(!mvmvif->phy_ctxt))
-		return -EINVAL;
+		return test_bit(IWL_MVM_STATUS_HW_RESTART_REQUESTED, &mvm->status) ? 0 : -EINVAL;
 
 	/*
 	 * If we are in a STA removal flow and in DQA mode:
@@ -3424,9 +3477,12 @@ static int iwl_mvm_send_aux_roc_cmd(struct iwl_mvm *mvm,
 	aux_roc_req.apply_time_max_delay = cpu_to_le32(delay);
 
 	IWL_DEBUG_TE(mvm,
-		     "ROC: Requesting to remain on channel %u for %ums (requested = %ums, max_delay = %ums, dtim_interval = %ums)\n",
-		     channel->hw_value, req_dur, duration, delay,
-		     dtim_interval);
+		     "ROC: Requesting to remain on channel %u for %ums\n",
+		     channel->hw_value, req_dur);
+	IWL_DEBUG_TE(mvm,
+		     "\t(requested = %ums, max_delay = %ums, dtim_interval = %ums)\n",
+		     duration, delay, dtim_interval);
+
 	/* Set the node address */
 	memcpy(aux_roc_req.node_addr, vif->addr, ETH_ALEN);
 
@@ -3493,6 +3549,7 @@ static int iwl_mvm_roc(struct ieee80211_hw *hw,
 	struct iwl_mvm_vif *mvmvif = iwl_mvm_vif_from_mac80211(vif);
 	struct cfg80211_chan_def chandef;
 	struct iwl_mvm_phy_ctxt *phy_ctxt;
+	bool band_change_removal;
 	int ret, i;
 
 	IWL_DEBUG_MAC80211(mvm, "enter (%d, %d, %d)\n", channel->hw_value,
@@ -3562,19 +3619,30 @@ static int iwl_mvm_roc(struct ieee80211_hw *hw,
 	cfg80211_chandef_create(&chandef, channel, NL80211_CHAN_NO_HT);
 
 	/*
-	 * Change the PHY context configuration as it is currently referenced
-	 * only by the P2P Device MAC
+	 * Check if the remain-on-channel is on a different band and that
+	 * requires context removal, see iwl_mvm_phy_ctxt_changed(). If
+	 * so, we'll need to release and then re-configure here, since we
+	 * must not remove a PHY context that's part of a binding.
 	 */
-	if (mvmvif->phy_ctxt->ref == 1) {
+	band_change_removal =
+		fw_has_capa(&mvm->fw->ucode_capa,
+			    IWL_UCODE_TLV_CAPA_BINDING_CDB_SUPPORT) &&
+		mvmvif->phy_ctxt->channel->band != chandef.chan->band;
+
+	if (mvmvif->phy_ctxt->ref == 1 && !band_change_removal) {
+		/*
+		 * Change the PHY context configuration as it is currently
+		 * referenced only by the P2P Device MAC (and we can modify it)
+		 */
 		ret = iwl_mvm_phy_ctxt_changed(mvm, mvmvif->phy_ctxt,
 					       &chandef, 1, 1);
 		if (ret)
 			goto out_unlock;
 	} else {
 		/*
-		 * The PHY context is shared with other MACs. Need to remove the
-		 * P2P Device from the binding, allocate an new PHY context and
-		 * create a new binding
+		 * The PHY context is shared with other MACs (or we're trying to
+		 * switch bands), so remove the P2P Device from the binding,
+		 * allocate an new PHY context and create a new binding.
 		 */
 		phy_ctxt = iwl_mvm_get_free_phy_ctxt(mvm);
 		if (!phy_ctxt) {

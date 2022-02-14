@@ -538,7 +538,7 @@ static int mmc_devfreq_set_target(struct device *dev,
 		*freq, current->comm);
 
 	spin_lock_irqsave(&clk_scaling->lock, flags);
-	if (clk_scaling->target_freq == *freq ||
+	if (clk_scaling->curr_freq == *freq ||
 		clk_scaling->skip_clk_scale_freq_update) {
 		spin_unlock_irqrestore(&clk_scaling->lock, flags);
 		goto out;
@@ -693,6 +693,12 @@ static int mmc_devfreq_create_freq_table(struct mmc_host *host)
 		pr_debug("%s: frequency table overshot possible freq (%d)\n",
 				mmc_hostname(host), clk_scaling->freq_table[i]);
 		break;
+	}
+
+	if (mmc_card_sd(host->card) && (clk_scaling->freq_table_sz < 2)) {
+		clk_scaling->freq_table[clk_scaling->freq_table_sz] =
+				host->card->clk_scaling_highest;
+		clk_scaling->freq_table_sz++;
 	}
 
 out:
@@ -1897,11 +1903,14 @@ int mmc_execute_tuning(struct mmc_card *card)
 
 	err = host->ops->execute_tuning(host, opcode);
 
-	if (err)
+	if (err) {
 		pr_err("%s: tuning execution failed: %d\n",
 			mmc_hostname(host), err);
-	else
+	} else {
+		host->retune_now = 0;
+		host->need_retune = 0;
 		mmc_retune_enable(host);
+	}
 
 	return err;
 }
@@ -2458,7 +2467,7 @@ int mmc_set_uhs_voltage(struct mmc_host *host, u32 ocr)
 
 	err = mmc_wait_for_cmd(host, &cmd, 0);
 	if (err)
-		return err;
+		goto power_cycle;
 
 	if (!mmc_host_is_spi(host) && (cmd.resp[0] & R1_ERROR))
 		return -EIO;
@@ -2707,10 +2716,11 @@ int mmc_resume_bus(struct mmc_host *host)
 		}
 		if (host->card->ext_csd.cmdq_en && !host->cqe_enabled) {
 			err = host->cqe_ops->cqe_enable(host, host->card);
-			host->cqe_enabled = true;
 			if (err)
 				pr_err("%s: %s: cqe enable failed: %d\n",
 				       mmc_hostname(host), __func__, err);
+			else
+				host->cqe_enabled = true;
 		}
 	}
 
@@ -3030,8 +3040,11 @@ static int mmc_do_erase(struct mmc_card *card, unsigned int from,
 	 * the erase operation does not exceed the max_busy_timeout, we should
 	 * use R1B response. Or we need to prevent the host from doing hw busy
 	 * detection, which is done by converting to a R1 response instead.
+	 * Note, some hosts requires R1B, which also means they are on their own
+	 * when it comes to deal with the busy timeout.
 	 */
-	if (card->host->max_busy_timeout &&
+	if (!(card->host->caps & MMC_CAP_NEED_RSP_BUSY) &&
+	    card->host->max_busy_timeout &&
 	    busy_timeout > card->host->max_busy_timeout) {
 		cmd.flags = MMC_RSP_SPI_R1 | MMC_RSP_R1 | MMC_CMD_AC;
 	} else {

@@ -68,7 +68,7 @@ u32 ieee80211_mandatory_rates(struct ieee80211_supported_band *sband,
 }
 EXPORT_SYMBOL(ieee80211_mandatory_rates);
 
-int ieee80211_channel_to_frequency(int chan, enum nl80211_band band)
+u32 ieee80211_channel_to_freq_khz(int chan, enum nl80211_band band)
 {
 	/* see 802.11 17.3.8.3.2 and Annex J
 	 * there are overlapping channel numbers in 5GHz and 2GHz bands */
@@ -77,29 +77,39 @@ int ieee80211_channel_to_frequency(int chan, enum nl80211_band band)
 	switch (band) {
 	case NL80211_BAND_2GHZ:
 		if (chan == 14)
-			return 2484;
+			return MHZ_TO_KHZ(2484);
 		else if (chan < 14)
-			return 2407 + chan * 5;
+			return MHZ_TO_KHZ(2407 + chan * 5);
 		break;
 	case NL80211_BAND_5GHZ:
 		if (chan >= 182 && chan <= 196)
-			return 4000 + chan * 5;
+			return MHZ_TO_KHZ(4000 + chan * 5);
 		else
-			return 5000 + chan * 5;
+			return MHZ_TO_KHZ(5000 + chan * 5);
+		break;
+	case NL80211_BAND_6GHZ:
+		/* see 802.11ax D6.1 27.3.23.2 */
+		if (chan == 2)
+			return MHZ_TO_KHZ(5935);
+		if (chan <= 253)
+			return MHZ_TO_KHZ(5950 + chan * 5);
 		break;
 	case NL80211_BAND_60GHZ:
-		if (chan < 5)
-			return 56160 + chan * 2160;
+		if (chan < 7)
+			return MHZ_TO_KHZ(56160 + chan * 2160);
 		break;
 	default:
 		;
 	}
 	return 0; /* not supported */
 }
-EXPORT_SYMBOL(ieee80211_channel_to_frequency);
+EXPORT_SYMBOL(ieee80211_channel_to_freq_khz);
 
-int ieee80211_frequency_to_channel(int freq)
+int ieee80211_freq_khz_to_channel(u32 freq)
 {
+	/* TODO: just handle MHz for now */
+	freq = KHZ_TO_MHZ(freq);
+
 	/* see 802.11 17.3.8.3.2 and Annex J */
 	if (freq == 2484)
 		return 14;
@@ -107,16 +117,22 @@ int ieee80211_frequency_to_channel(int freq)
 		return (freq - 2407) / 5;
 	else if (freq >= 4910 && freq <= 4980)
 		return (freq - 4000) / 5;
-	else if (freq <= 45000) /* DMG band lower limit */
+	else if (freq < 5925)
 		return (freq - 5000) / 5;
-	else if (freq >= 58320 && freq <= 64800)
+	else if (freq == 5935)
+		return 2;
+	else if (freq <= 45000) /* DMG band lower limit */
+		/* see 802.11ax D6.1 27.3.23.2 */
+		return (freq - 5950) / 5;
+	else if (freq >= 58320 && freq <= 70200)
 		return (freq - 56160) / 2160;
 	else
 		return 0;
 }
-EXPORT_SYMBOL(ieee80211_frequency_to_channel);
+EXPORT_SYMBOL(ieee80211_freq_khz_to_channel);
 
-struct ieee80211_channel *ieee80211_get_channel(struct wiphy *wiphy, int freq)
+struct ieee80211_channel *ieee80211_get_channel_khz(struct wiphy *wiphy,
+						    u32 freq)
 {
 	enum nl80211_band band;
 	struct ieee80211_supported_band *sband;
@@ -129,14 +145,16 @@ struct ieee80211_channel *ieee80211_get_channel(struct wiphy *wiphy, int freq)
 			continue;
 
 		for (i = 0; i < sband->n_channels; i++) {
-			if (sband->channels[i].center_freq == freq)
-				return &sband->channels[i];
+			struct ieee80211_channel *chan = &sband->channels[i];
+
+			if (ieee80211_channel_to_khz(chan) == freq)
+				return chan;
 		}
 	}
 
 	return NULL;
 }
-EXPORT_SYMBOL(ieee80211_get_channel);
+EXPORT_SYMBOL(ieee80211_get_channel_khz);
 
 static void set_mandatory_flags_band(struct ieee80211_supported_band *sband)
 {
@@ -144,6 +162,7 @@ static void set_mandatory_flags_band(struct ieee80211_supported_band *sband)
 
 	switch (sband->band) {
 	case NL80211_BAND_5GHZ:
+	case NL80211_BAND_6GHZ:
 		want = 3;
 		for (i = 0; i < sband->n_bitrates; i++) {
 			if (sband->bitrates[i].bitrate == 60 ||
@@ -214,16 +233,51 @@ bool cfg80211_supported_cipher_suite(struct wiphy *wiphy, u32 cipher)
 	return false;
 }
 
-int cfg80211_validate_key_settings(struct cfg80211_registered_device *rdev,
-				   struct key_params *params, int key_idx,
-				   bool pairwise, const u8 *mac_addr)
+static bool
+cfg80211_igtk_cipher_supported(struct cfg80211_registered_device *rdev)
 {
-	int max_key_idx = 5;
+	struct wiphy *wiphy = &rdev->wiphy;
+	int i;
+
+	for (i = 0; i < wiphy->n_cipher_suites; i++) {
+		switch (wiphy->cipher_suites[i]) {
+		case WLAN_CIPHER_SUITE_AES_CMAC:
+		case WLAN_CIPHER_SUITE_BIP_CMAC_256:
+		case WLAN_CIPHER_SUITE_BIP_GMAC_128:
+		case WLAN_CIPHER_SUITE_BIP_GMAC_256:
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool cfg80211_valid_key_idx(struct cfg80211_registered_device *rdev,
+			    int key_idx, bool pairwise)
+{
+	int max_key_idx;
 
 	if (wiphy_ext_feature_isset(&rdev->wiphy,
 				    NL80211_EXT_FEATURE_BEACON_PROTECTION))
 		max_key_idx = 7;
+	else if (pairwise)
+		max_key_idx = 3;
+	else if (cfg80211_igtk_cipher_supported(rdev))
+		max_key_idx = 5;
+	else
+		max_key_idx = 3;
+
 	if (key_idx < 0 || key_idx > max_key_idx)
+		return false;
+
+	return true;
+}
+
+int cfg80211_validate_key_settings(struct cfg80211_registered_device *rdev,
+				   struct key_params *params, int key_idx,
+				   bool pairwise, const u8 *mac_addr)
+{
+	if (!cfg80211_valid_key_idx(rdev, key_idx, pairwise))
 		return -EINVAL;
 
 	if (!pairwise && mac_addr && !(rdev->wiphy.flags & WIPHY_FLAG_IBSS_RSN))
@@ -427,7 +481,7 @@ EXPORT_SYMBOL(ieee80211_get_mesh_hdrlen);
 
 int ieee80211_data_to_8023_exthdr(struct sk_buff *skb, struct ethhdr *ehdr,
 				  const u8 *addr, enum nl80211_iftype iftype,
-				  u8 data_offset)
+				  u8 data_offset, bool is_amsdu)
 {
 	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *) skb->data;
 	struct {
@@ -515,7 +569,7 @@ int ieee80211_data_to_8023_exthdr(struct sk_buff *skb, struct ethhdr *ehdr,
 	skb_copy_bits(skb, hdrlen, &payload, sizeof(payload));
 	tmp.h_proto = payload.proto;
 
-	if (likely((ether_addr_equal(payload.hdr, rfc1042_header) &&
+	if (likely((!is_amsdu && ether_addr_equal(payload.hdr, rfc1042_header) &&
 		    tmp.h_proto != htons(ETH_P_AARP) &&
 		    tmp.h_proto != htons(ETH_P_IPX)) ||
 		   ether_addr_equal(payload.hdr, bridge_tunnel_header)))
@@ -656,6 +710,9 @@ void ieee80211_amsdu_to_8023s(struct sk_buff *skb, struct sk_buff_head *list,
 		/* the last MSDU has no padding */
 		remaining = skb->len - offset;
 		if (subframe_len > remaining)
+			goto purge;
+		/* mitigate A-MSDU aggregation injection attacks */
+		if (ether_addr_equal(eth.h_dest, rfc1042_header))
 			goto purge;
 
 		offset += sizeof(struct ethhdr);
@@ -915,6 +972,7 @@ int cfg80211_change_iface(struct cfg80211_registered_device *rdev,
 
 		switch (otype) {
 		case NL80211_IFTYPE_AP:
+		case NL80211_IFTYPE_P2P_GO:
 			cfg80211_stop_ap(rdev, dev, true);
 			break;
 		case NL80211_IFTYPE_ADHOC:
@@ -929,6 +987,9 @@ int cfg80211_change_iface(struct cfg80211_registered_device *rdev,
 			break;
 		case NL80211_IFTYPE_MESH_POINT:
 			/* mesh should be handled? */
+			break;
+		case NL80211_IFTYPE_OCB:
+			cfg80211_leave_ocb(rdev, dev);
 			break;
 		default:
 			break;
@@ -1481,6 +1542,9 @@ bool ieee80211_operating_class_to_band(u8 operating_class,
 	case 128 ... 130:
 		*band = NL80211_BAND_5GHZ;
 		return true;
+	case 131 ... 135:
+		*band = NL80211_BAND_6GHZ;
+		return true;
 	case 81:
 	case 82:
 	case 83:
@@ -1612,7 +1676,7 @@ bool ieee80211_chandef_to_operating_class(struct cfg80211_chan_def *chandef,
 	}
 
 	/* 56.16 GHz, channel 1..4 */
-	if (freq >= 56160 + 2160 * 1 && freq <= 56160 + 2160 * 4) {
+	if (freq >= 56160 + 2160 * 1 && freq <= 56160 + 2160 * 6) {
 		if (chandef->width >= NL80211_CHAN_WIDTH_40)
 			return false;
 

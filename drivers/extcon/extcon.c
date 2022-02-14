@@ -1314,6 +1314,7 @@ int extcon_dev_register(struct extcon_dev *edev)
 				sizeof(*edev->nh), GFP_KERNEL);
 	if (!edev->nh) {
 		ret = -ENOMEM;
+		device_unregister(&edev->dev);
 		goto err_dev;
 	}
 
@@ -1324,8 +1325,10 @@ int extcon_dev_register(struct extcon_dev *edev)
 		goto err_dev;
 	}
 
-	for (index = 0; index < edev->max_supported; index++)
+	for (index = 0; index < edev->max_supported; index++) {
 		RAW_INIT_NOTIFIER_HEAD(&edev->nh[index]);
+		BLOCKING_INIT_NOTIFIER_HEAD(&edev->bnh[index]);
+	}
 
 	RAW_INIT_NOTIFIER_HEAD(&edev->nh_all);
 
@@ -1486,6 +1489,7 @@ const char *extcon_get_edev_name(struct extcon_dev *edev)
 {
 	return !edev ? NULL : edev->name;
 }
+EXPORT_SYMBOL_GPL(extcon_get_edev_name);
 
 static int __init extcon_class_init(void)
 {

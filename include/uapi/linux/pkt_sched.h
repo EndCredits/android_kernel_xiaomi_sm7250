@@ -147,7 +147,10 @@ struct tc_skbprio_qopt {
 struct tc_prio_qopt {
 	int	bands;			/* Number of bands */
 	__u8	priomap[TC_PRIO_MAX+1];	/* Map: logical priority -> PRIO band */
+	__u8	enable_flow;		/* Enable dequeue */
 };
+
+#define TCQ_PRIO_FLOW_CONTROL 1
 
 /* MULTIQ section */
 
@@ -778,6 +781,8 @@ struct tc_codel_xstats {
 };
 
 /* FQ_CODEL */
+
+#define FQ_CODEL_QUANTUM_MAX (1 << 20)
 
 enum {
 	TCA_FQ_CODEL_UNSPEC,

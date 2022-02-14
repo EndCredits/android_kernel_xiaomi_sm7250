@@ -366,6 +366,13 @@ config HAVE_RCU_TABLE_FREE
 config HAVE_RCU_TABLE_INVALIDATE
 	bool
 
+config ARCH_WANT_IRQS_OFF_ACTIVATE_MM
+	bool
+	help
+	  Temporary select until all architectures can be converted to have
+	  irqs disabled over activate_mm. Architectures that do IPI based TLB
+	  shootdowns should enable this.
+
 config ARCH_HAVE_NMI_SAFE_CMPXCHG
 	bool
 
@@ -997,6 +1004,9 @@ config RELR
 	  format. Requires a compatible linker (LLD supports this feature), as
 	  well as compatible NM and OBJCOPY utilities (llvm-nm and llvm-objcopy
 	  are compatible).
+
+config ARCH_USE_MEMREMAP_PROT
+	bool
 
 source "kernel/gcov/Kconfig"
 

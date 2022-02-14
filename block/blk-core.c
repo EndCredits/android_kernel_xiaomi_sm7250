@@ -1041,6 +1041,8 @@ struct request_queue *blk_alloc_queue_node(gfp_t gfp_mask, int node_id,
 
 	q->backing_dev_info->ra_pages =
 			(VM_MAX_READAHEAD * 1024) / PAGE_SIZE;
+	q->backing_dev_info->io_pages =
+			(VM_MAX_READAHEAD * 1024) / PAGE_SIZE;
 	q->backing_dev_info->capabilities = BDI_CAP_CGROUP_WRITEBACK;
 	q->backing_dev_info->name = "block";
 	q->node = node_id;
@@ -1062,6 +1064,7 @@ struct request_queue *blk_alloc_queue_node(gfp_t gfp_mask, int node_id,
 	mutex_init(&q->blk_trace_mutex);
 #endif
 	mutex_init(&q->sysfs_lock);
+	mutex_init(&q->sysfs_dir_lock);
 	spin_lock_init(&q->__queue_lock);
 
 	if (!q->mq_ops)
@@ -1742,8 +1745,12 @@ EXPORT_SYMBOL_GPL(part_round_stats);
 #ifdef CONFIG_PM
 static void blk_pm_put_request(struct request *rq)
 {
-	if (rq->q->dev && !(rq->rq_flags & RQF_PM) && !--rq->q->nr_pending)
-		pm_runtime_mark_last_busy(rq->q->dev);
+	if (rq->q->dev && !(rq->rq_flags & RQF_PM) &&
+	    (rq->rq_flags & RQF_PM_ADDED)) {
+		rq->rq_flags &= ~RQF_PM_ADDED;
+		if (!--rq->q->nr_pending)
+			pm_runtime_mark_last_busy(rq->q->dev);
+	}
 }
 #else
 static inline void blk_pm_put_request(struct request *rq) {}
