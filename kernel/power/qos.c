@@ -562,7 +562,7 @@ static void pm_qos_irq_notify(struct irq_affinity_notify *notify,
 	cpumask_copy(&req->cpus_affine, mask);
 	spin_unlock_irqrestore(&pm_qos_lock, flags);
 
-	pm_qos_update_target(c, &req->node, PM_QOS_UPDATE_REQ, req->node.prio);
+	pm_qos_update_target(c, &req->node, PM_QOS_UPDATE_REQ, req->node.prio, false);
 }
 #endif
 
