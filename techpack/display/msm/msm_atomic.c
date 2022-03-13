@@ -117,6 +117,18 @@ static inline bool _msm_seamless_for_conn(struct drm_connector *connector,
 /* clear specified crtcs (no longer pending update) */
 static void commit_destroy(struct msm_commit *c)
 {
+	struct msm_drm_private *priv = c->dev->dev_private;
+	uint32_t crtc_mask = c->crtc_mask;
+	uint32_t plane_mask = c->plane_mask;
+
+	/* End_atomic */
+	spin_lock(&priv->pending_crtcs_event.lock);
+	DBG("end: %08x", crtc_mask);
+	priv->pending_crtcs &= ~crtc_mask;
+	priv->pending_planes &= ~plane_mask;
+	wake_up_all_locked(&priv->pending_crtcs_event);
+	spin_unlock(&priv->pending_crtcs_event.lock);
+
 	if (c->nonblock)
 		kfree(c);
 }
@@ -458,16 +470,6 @@ static void msm_atomic_helper_commit_modeset_enables(struct drm_device *dev,
 	SDE_ATRACE_END("msm_enable");
 }
 
-static void complete_commit_cleanup(struct kthread_work *work)
-{
-	struct msm_commit *c = container_of(work, typeof(*c), commit_work);
-	struct drm_atomic_state *state = c->state;
-
-	drm_atomic_state_put(state);
-
-	commit_destroy(c);
-}
-
 int msm_atomic_prepare_fb(struct drm_plane *plane,
 			  struct drm_plane_state *new_state)
 {
@@ -504,8 +506,6 @@ static void complete_commit(struct msm_commit *c)
 	struct drm_device *dev = state->dev;
 	struct msm_drm_private *priv = dev->dev_private;
 	struct msm_kms *kms = priv->kms;
-	uint32_t crtc_mask = c->crtc_mask;
-	uint32_t plane_mask = c->plane_mask;
 
 	drm_atomic_helper_wait_for_fences(dev, state, false);
 
@@ -537,42 +537,30 @@ static void complete_commit(struct msm_commit *c)
 
 	kms->funcs->complete_commit(kms, state);
 
-	priv->complete_commit_time = ktime_get()/1000;
+	drm_atomic_state_put(state);
 
-	complete_time_generate_event(dev);
-
-	/* End_atomic */
-	spin_lock(&priv->pending_crtcs_event.lock);
-	DBG("end: %08x", crtc_mask);
-	priv->pending_crtcs &= ~crtc_mask;
-	priv->pending_planes &= ~plane_mask;
-	wake_up_all_locked(&priv->pending_crtcs_event);
-	spin_unlock(&priv->pending_crtcs_event.lock);
+	commit_destroy(c);
 }
 
 static void _msm_drm_commit_work_cb(struct kthread_work *work)
 {
-	struct msm_commit *c = container_of(work, typeof(*c), commit_work);
-	struct drm_atomic_state *state = c->state;
-	struct drm_device *dev = state->dev;
-	struct msm_drm_private *priv = dev->dev_private;
+	struct msm_commit *commit = NULL;
 	ktime_t start, end;
 	s64 duration;
+
+	if (!work) {
+		DRM_ERROR("%s: Invalid commit work data!\n", __func__);
+		return;
+	}
+
+	commit = container_of(work, struct msm_commit, commit_work);
 
 	start = ktime_get();
 	frame_stat_collector(0, COMMIT_START_TS);
 
 	SDE_ATRACE_BEGIN("complete_commit");
-	complete_commit(c);
+	complete_commit(commit);
 	SDE_ATRACE_END("complete_commit");
-
-	if (c->nonblock) {
-		/* Offload the cleanup onto little CPUs */
-		kthread_init_work(&c->commit_work, complete_commit_cleanup);
-		kthread_queue_work(&priv->clean_thread.worker, &c->commit_work);
-	} else {
-		complete_commit_cleanup(&c->commit_work);
-	}
 
 	end = ktime_get();
 	duration = ktime_to_ns(ktime_sub(end, start));
@@ -652,7 +640,6 @@ static void msm_atomic_commit_dispatch(struct drm_device *dev,
 		 * ensure that SW and HW state don't get out of sync.
 		 */
 		complete_commit(commit);
-		complete_commit_cleanup(&commit->commit_work);
 	} else if (!nonblock) {
 		kthread_flush_work(&commit->commit_work);
 	}
