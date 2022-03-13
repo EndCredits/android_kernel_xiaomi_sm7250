@@ -530,6 +530,21 @@ static void pm_qos_work_fn(struct work_struct *work)
 	__pm_qos_update_request(req, PM_QOS_DEFAULT_VALUE);
 }
 
+/**
+ * pm_qos_work_fn - the timeout handler of pm_qos_update_request_timeout
+ * @work: work struct for the delayed work (timeout)
+ *
+ * This cancels the timeout request by falling back to the default at timeout.
+ */
+static void pm_qos_work_fn(struct work_struct *work)
+{
+	struct pm_qos_request *req = container_of(to_delayed_work(work),
+						  struct pm_qos_request,
+						  work);
+
+	__pm_qos_update_request(req, PM_QOS_DEFAULT_VALUE);
+}
+
 #ifdef CONFIG_SMP
 static void pm_qos_irq_release(struct kref *ref)
 {
@@ -707,7 +722,7 @@ void pm_qos_update_request_timeout(struct pm_qos_request *req, s32 new_value,
 	if (new_value != req->node.prio)
 		pm_qos_update_target(
 			pm_qos_array[req->pm_qos_class]->constraints,
-			&req->node, PM_QOS_UPDATE_REQ, new_value);
+			&req->node, PM_QOS_UPDATE_REQ, new_value, false);
 
 	schedule_delayed_work(&req->work, usecs_to_jiffies(timeout_us));
 }
