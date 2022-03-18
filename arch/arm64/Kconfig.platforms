@@ -175,6 +175,15 @@ config ARCH_LAGOON
 	  This enables support for the LAGOON chipset. If you do not
 	  wish to build a kernel that runs on this chipset, say 'N' here.
 
+config BOARD_PICASSO
+	bool "Enable Support for Xiaomi Inc. Redmi K30 5G"
+	depends on ARCH_LITO
+	select COMMON_CLK_QCOM
+	help
+	  This enables support for Redmi K30 5G. (Mainly for fastcharge)
+	  If you do notwish to build a kernel that runs on this device, 
+	  say 'N' here.
+
 config ARCH_BENGAL
 	bool "Enable Support for Qualcomm Technologies, Inc. BENGAL"
 	depends on ARCH_QCOM
