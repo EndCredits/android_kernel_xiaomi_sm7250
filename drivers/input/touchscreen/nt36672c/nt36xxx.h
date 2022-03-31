@@ -113,6 +113,13 @@ extern const uint16_t gesture_key_array[];
 #define DEFAULT_DEBUG_FW_NAME "novatek_debug_fw.bin"
 #define DEFAULT_DEBUG_MP_NAME "novatek_debug_mp.bin"
 
+
+//---ESD Protect.---
+#define NVT_TOUCH_ESD_PROTECT 1
+#define NVT_TOUCH_ESD_CHECK_PERIOD 1500	/* ms */
+#define NVT_TOUCH_WDT_RECOVERY 1
+#define NVT_TOUCH_ESD_DISP_RECOVERY 1
+
 struct nvt_config_info {
 	u8 tp_vendor;
 	u8 tp_color;
@@ -272,4 +279,7 @@ void nvt_set_dbgfw_status(bool enable);
 bool nvt_get_dbgfw_status(void);
 void nvt_match_fw(void);
 int32_t nvt_set_pocket_palm_switch(uint8_t pocket_palm_switch);
+#if NVT_TOUCH_ESD_PROTECT
+extern void nvt_esd_check_enable(uint8_t enable);
+#endif /* #if NVT_TOUCH_ESD_PROTECT */
 #endif /* _LINUX_NVT_TOUCH_H */
