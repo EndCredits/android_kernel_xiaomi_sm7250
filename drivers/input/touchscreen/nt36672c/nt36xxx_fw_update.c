@@ -1121,14 +1121,8 @@ void Boot_Update_Firmware(struct work_struct *work)
 {
 	nvt_match_fw();
 	mutex_lock(&ts->lock);
-	if (nvt_get_dbgfw_status()) {
-		if (nvt_update_firmware(DEFAULT_DEBUG_FW_NAME) < 0) {
-			NVT_ERR("use built-in fw");
-			nvt_update_firmware(ts->fw_name);
-		}
-	} else {
-		nvt_update_firmware(ts->fw_name);
-	}
+	nvt_update_firmware(ts->fw_name);
+	
 	nvt_get_fw_info();
 	mutex_unlock(&ts->lock);
 }

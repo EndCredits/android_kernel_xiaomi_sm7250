@@ -1328,16 +1328,6 @@ static void nvt_gpio_deconfig(struct nvt_ts_data *ts)
 #endif
 }
 
-void nvt_set_dbgfw_status(bool enable)
-{
-	ts->fw_debug = enable;
-}
-
-bool nvt_get_dbgfw_status(void)
-{
-	return ts->fw_debug;
-}
-
 #if NVT_TOUCH_ESD_PROTECT
 void nvt_esd_check_enable(uint8_t enable)
 {
@@ -1375,14 +1365,8 @@ static void nvt_esd_check_func(struct work_struct *work)
 		mutex_lock(&ts->lock);
 		NVT_ERR("do ESD recovery, timer = %d, retry = %d\n", timer, esd_retry);
 		/* do esd recovery, reload fw */
-		if (nvt_get_dbgfw_status()) {
-			if (nvt_update_firmware(DEFAULT_DEBUG_FW_NAME) < 0) {
-				NVT_ERR("use built-in fw");
-				nvt_update_firmware(ts->fw_name);
-			}
-		} else {
-			nvt_update_firmware(ts->fw_name);
-		}
+		nvt_update_firmware(ts->fw_name);
+
 		mutex_unlock(&ts->lock);
 		/* update interrupt timer */
 		irq_timer = jiffies;
@@ -1484,14 +1468,8 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
    /* ESD protect by WDT */
 	if (nvt_wdt_fw_recovery(point_data)) {
 		NVT_ERR("Recover for fw reset, %02X\n", point_data[1]);
-		if (nvt_get_dbgfw_status()) {
-			if (nvt_update_firmware(DEFAULT_DEBUG_FW_NAME) < 0) {
-				NVT_ERR("use built-in fw");
-				nvt_update_firmware(ts->fw_name);
-			}
-		} else {
-			nvt_update_firmware(ts->fw_name);
-		}
+		nvt_update_firmware(ts->fw_name);
+
 		if (ts->debug_flag >= TOUCH_DISABLE_LPM)
 			lpm_disable_for_input(false);
 		goto XFER_ERROR;
@@ -2963,11 +2941,8 @@ static int32_t nvt_ts_resume(struct device *dev)
 		NVT_LOG("Touch is already resume\n");
 #if NVT_TOUCH_WDT_RECOVERY
 		mutex_lock(&ts->lock);
-		if (nvt_get_dbgfw_status()) {
-			ret = nvt_update_firmware(DEFAULT_DEBUG_FW_NAME);
-		} else {
-			ret = nvt_update_firmware(ts->fw_name);
-		}
+		ret = nvt_update_firmware(ts->fw_name);
+
 		mutex_unlock(&ts->lock);
 #endif /* #if NVT_TOUCH_WDT_RECOVERY */
 		goto Exit;
@@ -2982,15 +2957,8 @@ static int32_t nvt_ts_resume(struct device *dev)
 #if NVT_TOUCH_SUPPORT_HW_RST
 	gpio_set_value(ts->reset_gpio, 1);
 #endif
-	if (nvt_get_dbgfw_status()) {
-		ret = nvt_update_firmware(DEFAULT_DEBUG_FW_NAME);
-		if (ret < 0) {
-			NVT_ERR("use built-in fw");
-			ret = nvt_update_firmware(ts->fw_name);
-		}
-	} else {
-		ret = nvt_update_firmware(ts->fw_name);
-	}
+	ret = nvt_update_firmware(ts->fw_name);
+
 	if (ret)
 		NVT_ERR("download firmware failed\n");
 	nvt_check_fw_reset_state(RESET_STATE_REK);
