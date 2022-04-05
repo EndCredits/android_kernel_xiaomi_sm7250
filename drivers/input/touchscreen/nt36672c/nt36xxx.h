@@ -216,6 +216,7 @@ struct nvt_ts_data {
 	uint8_t debug_flag;
 
 	bool avoid_notifier_callback;
+	struct delayed_work nvt_refresh_work;
 };
 
 #if NVT_TOUCH_PROC

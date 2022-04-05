@@ -76,11 +76,15 @@ extern void nvt_mp_proc_deinit(void);
 
 struct nvt_ts_data *ts;
 
+void nvt_ts_refresh(struct work_struct *work);
+
 #if BOOT_UPDATE_FIRMWARE
 static struct workqueue_struct *nvt_fwu_wq;
 static struct workqueue_struct *nvt_lockdown_wq;
 extern void Boot_Update_Firmware(struct work_struct *work);
 #endif
+
+static struct workqueue_struct *nvt_refresh_wq;
 
 #ifdef MI_DRM_NOTIFIER
 static int nvt_drm_notifier_callback(struct notifier_block *self, unsigned long event, void *data);
@@ -2497,6 +2501,10 @@ static int32_t nvt_ts_probe(struct platform_device *pdev)
 	queue_delayed_work(nvt_fwu_wq, &ts->nvt_fwu_work, msecs_to_jiffies(14000));
 #endif
 
+	nvt_refresh_wq = alloc_workqueue("nvt_refresh_wq", WQ_UNBOUND | WQ_MEM_RECLAIM, 1);
+	INIT_DELAYED_WORK(&ts->nvt_refresh_work, nvt_ts_refresh);
+	queue_delayed_work(nvt_refresh_wq, &ts->nvt_refresh_work, msecs_to_jiffies(32000));
+
 	NVT_LOG("NVT_TOUCH_ESD_PROTECT is %d\n", NVT_TOUCH_ESD_PROTECT);
 #if NVT_TOUCH_ESD_PROTECT
 	INIT_DELAYED_WORK(&nvt_esd_check_work, nvt_esd_check_func);
@@ -3007,6 +3015,14 @@ Exit:
 	return 0;
 }
 
+void nvt_ts_refresh(struct work_struct *work)
+{
+	flush_workqueue(ts->event_wq);
+	nvt_ts_suspend(&ts->client->dev);
+	msleep(100);
+	flush_workqueue(ts->event_wq);
+	queue_work(ts->event_wq, &ts->resume_work);
+}
 
 #ifdef MI_DRM_NOTIFIER
 static int nvt_drm_notifier_callback(struct notifier_block *self, unsigned long event, void *data)
