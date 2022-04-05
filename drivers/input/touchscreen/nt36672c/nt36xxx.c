@@ -2248,6 +2248,8 @@ static int32_t nvt_ts_probe(struct platform_device *pdev)
 	NVT_LOG("start\n");
 
 	ts = kzalloc(sizeof(struct nvt_ts_data), GFP_KERNEL);
+
+	ts->avoid_notifier_callback = true;
 	if (ts == NULL) {
 		NVT_ERR("failed to allocated memory for nvt ts data\n");
 		return -ENOMEM;
@@ -3013,6 +3015,9 @@ static int nvt_drm_notifier_callback(struct notifier_block *self, unsigned long 
 	int *blank;
 	struct nvt_ts_data *ts_data=
 		container_of(self, struct nvt_ts_data, drm_notif);
+
+	if (ts_data->avoid_notifier_callback)
+		return 0;
 
 	if (!evdata || (evdata->id != 0))
 		return 0;

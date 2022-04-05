@@ -214,6 +214,8 @@ struct nvt_ts_data {
 	bool palm_sensor_switch;
 	bool rf_resist_cmd_waiting;
 	uint8_t debug_flag;
+
+	bool avoid_notifier_callback;
 };
 
 #if NVT_TOUCH_PROC

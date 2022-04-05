@@ -1125,5 +1125,7 @@ void Boot_Update_Firmware(struct work_struct *work)
 	
 	nvt_get_fw_info();
 	mutex_unlock(&ts->lock);
+
+	ts->avoid_notifier_callback = false;
 }
 #endif /* BOOT_UPDATE_FIRMWARE */
