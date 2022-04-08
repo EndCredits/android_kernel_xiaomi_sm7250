@@ -24,6 +24,8 @@
 #include <linux/quotaops.h>
 #include <crypto/hash.h>
 
+#include <linux/sched/mm.h>
+
 #include <linux/fscrypt.h>
 #include <linux/fsverity.h>
 
@@ -3352,12 +3354,26 @@ static inline void *f2fs_kzalloc(struct f2fs_sb_info *sbi,
 static inline void *f2fs_kvmalloc(struct f2fs_sb_info *sbi,
 					size_t size, gfp_t flags)
 {
+	void *p;
+
 	if (time_to_inject(sbi, FAULT_KVMALLOC)) {
 		f2fs_show_injection_info(sbi, FAULT_KVMALLOC);
 		return NULL;
 	}
 
-	return kvmalloc(size, flags);
+	if ((flags & (__GFP_IO | __GFP_FS)) == (__GFP_IO | __GFP_FS)) {
+		p = kvmalloc(size, flags);
+	} else if ((flags & (__GFP_IO | __GFP_FS)) == __GFP_IO) {
+		unsigned int nofs_flag = memalloc_nofs_save();
+		p = kvmalloc(size, GFP_KERNEL);
+		memalloc_nofs_restore(nofs_flag);
+	} else {
+		unsigned int noio_flag = memalloc_noio_save();
+		p = kvmalloc(size, GFP_KERNEL);
+		memalloc_noio_restore(noio_flag);
+	}
+
+	return p;
 }
 
 static inline void *f2fs_kvzalloc(struct f2fs_sb_info *sbi,
