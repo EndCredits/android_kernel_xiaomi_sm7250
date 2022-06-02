@@ -2,6 +2,7 @@
 
 # Assume no targets will be supported
 
+<<<<<<<< HEAD:asoc/codecs/msm_sdw/Android.mk
 AUDIO_CHIPSET := audio
 # Build/Package only in case of supported target
 
@@ -10,6 +11,24 @@ AUDIO_SELECT  := CONFIG_SND_SOC_SDM660=m
 endif
 
 ifeq ($(call is-board-platform-in-list, sdm660),true)
+========
+# Check if this driver needs be built for current target
+ifeq ($(call is-board-platform,msmnile),true)
+AUDIO_SELECT  := CONFIG_SND_SOC_SM8150=m
+endif
+
+ifeq ($(call is-board-platform,$(MSMSTEPPE) $(TRINKET)),true)
+AUDIO_SELECT  := CONFIG_SND_SOC_SM6150=m
+endif
+
+ifeq ($(call is-board-platform,sdm660),true)
+AUDIO_SELECT  := CONFIG_SND_SOC_SDM660=m
+endif
+
+AUDIO_CHIPSET := audio
+# Build/Package only in case of supported target
+ifeq ($(call is-board-platform-in-list,msmnile $(MSMSTEPPE) $(TRINKET) sdm660),true)
+>>>>>>>> LA.UM.9.12.1.r1-01500-SMxx50.QSSI12.0:asoc/codecs/wcd934x/Android.mk
 
 LOCAL_PATH := $(call my-dir)
 
