@@ -1,27 +1,25 @@
 # auto-detect subdirs
 ifeq ($(CONFIG_ARCH_SDXPOORWILLS), y)
 include $(srctree)/techpack/audio/config/sdxpoorwillsauto.conf
-export $(shell sed 's/=.*//' $(srctree)/techpack/audio/config/sdxpoorwillsauto.conf)
+export
 endif
 ifeq ($(CONFIG_ARCH_SM8150), y)
 include $(srctree)/techpack/audio/config/sm8150auto.conf
-export $(shell sed 's/=.*//' $(srctree)/techpack/audio/config/sm8150auto.conf)
+export
 endif
 ifeq ($(CONFIG_ARCH_SDMSHRIKE), y)
 include $(srctree)/techpack/audio/config/sm8150auto.conf
-export $(shell sed 's/=.*//' $(srctree)/techpack/audio/config/sm8150auto.conf)
+export
 endif
 ifeq ($(CONFIG_ARCH_KONA), y)
 include $(srctree)/techpack/audio/config/konaauto.conf
-export $(shell sed 's/=.*//' $(srctree)/techpack/audio/config/konaauto.conf)
 endif
 ifeq ($(CONFIG_ARCH_LITO), y)
 include $(srctree)/techpack/audio/config/litoauto.conf
-export $(shell sed 's/=.*//' $(srctree)/techpack/audio/config/litoauto.conf)
+export
 endif
 ifeq ($(CONFIG_ARCH_SDM660), y)
 include $(srctree)/techpack/audio/config/sdm660auto.conf
-export $(shell sed 's/=.*//' $(srctree)/techpack/audio/config/sdm660auto.conf)
 endif
 
 # Use USERINCLUDE when you must reference the UAPI directories only.
