@@ -2103,6 +2103,7 @@ static void ffs_func_eps_disable(struct ffs_function *func)
 	spin_lock_irqsave(&func->ffs->eps_lock, flags);
 	count = func->ffs->eps_count;
 	epfile = func->ffs->epfiles;
+	ffs = func->ffs;
 	ep = func->eps;
 	while (count--) {
 		/* pending requests get nuked */
