@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2018 HUAWEI, Inc.
- *             https://www.huawei.com/
+ *             http://www.huawei.com/
+ * Created by Gao Xiang <gaoxiang25@huawei.com>
  */
 #include "internal.h"
 #include <linux/pagevec.h>
+#include <linux/mm_inline.h>
 
-struct page *erofs_allocpage(struct list_head *pool, gfp_t gfp)
+struct page *erofs_allocpage(struct list_head *pool, gfp_t gfp, bool nofail)
 {
 	struct page *page;
 
@@ -15,10 +17,22 @@ struct page *erofs_allocpage(struct list_head *pool, gfp_t gfp)
 		DBG_BUGON(page_ref_count(page) != 1);
 		list_del(&page->lru);
 	} else {
-		page = alloc_page(gfp);
+		page = alloc_pages(gfp | (nofail ? __GFP_NOFAIL : 0), 0);
 	}
 	return page;
 }
+
+#if (EROFS_PCPUBUF_NR_PAGES > 0)
+static struct {
+	u8 data[PAGE_SIZE * EROFS_PCPUBUF_NR_PAGES];
+} ____cacheline_aligned_in_smp erofs_pcpubuf[NR_CPUS];
+
+void *erofs_get_pcpubuf(unsigned int pagenr)
+{
+	preempt_disable();
+	return &erofs_pcpubuf[smp_processor_id()].data[pagenr * PAGE_SIZE];
+}
+#endif
 
 #ifdef CONFIG_EROFS_FS_ZIP
 /* global shrink count (for all mounted EROFS instances) */
@@ -123,8 +137,15 @@ int erofs_workgroup_put(struct erofs_workgroup *grp)
 	return count;
 }
 
+static void erofs_workgroup_unfreeze_final(struct erofs_workgroup *grp)
+{
+	erofs_workgroup_unfreeze(grp, 0);
+	__erofs_workgroup_free(grp);
+}
+
 static bool erofs_try_to_release_workgroup(struct erofs_sb_info *sbi,
-					   struct erofs_workgroup *grp)
+					   struct erofs_workgroup *grp,
+					   bool cleanup)
 {
 	/*
 	 * If managed cache is on, refcount of workgroups
@@ -152,14 +173,17 @@ static bool erofs_try_to_release_workgroup(struct erofs_sb_info *sbi,
 	 */
 	DBG_BUGON(radix_tree_delete(&sbi->workstn_tree, grp->index) != grp);
 
-	/* last refcount should be connected with its managed pslot.  */
-	erofs_workgroup_unfreeze(grp, 0);
-	__erofs_workgroup_free(grp);
+	/*
+	 * If managed cache is on, last refcount should indicate
+	 * the related workstation.
+	 */
+	erofs_workgroup_unfreeze_final(grp);
 	return true;
 }
 
 static unsigned long erofs_shrink_workstation(struct erofs_sb_info *sbi,
-					      unsigned long nr_shrink)
+					      unsigned long nr_shrink,
+					      bool cleanup)
 {
 	pgoff_t first_index = 0;
 	void *batch[PAGEVEC_SIZE];
@@ -178,7 +202,7 @@ repeat:
 		first_index = grp->index + 1;
 
 		/* try to shrink each valid workgroup */
-		if (!erofs_try_to_release_workgroup(sbi, grp))
+		if (!erofs_try_to_release_workgroup(sbi, grp, cleanup))
 			continue;
 
 		++freed;
@@ -215,8 +239,7 @@ void erofs_shrinker_unregister(struct super_block *sb)
 	struct erofs_sb_info *const sbi = EROFS_SB(sb);
 
 	mutex_lock(&sbi->umount_mutex);
-	/* clean up all remaining workgroups in memory */
-	erofs_shrink_workstation(sbi, ~0UL);
+	erofs_shrink_workstation(sbi, ~0UL, true);
 
 	spin_lock(&erofs_sb_list_lock);
 	list_del(&sbi->list);
@@ -265,7 +288,7 @@ static unsigned long erofs_shrink_scan(struct shrinker *shrink,
 		spin_unlock(&erofs_sb_list_lock);
 		sbi->shrinker_run_no = run_no;
 
-		freed += erofs_shrink_workstation(sbi, nr - freed);
+		freed += erofs_shrink_workstation(sbi, nr - freed, false);
 
 		spin_lock(&erofs_sb_list_lock);
 		/* Get the next list element before we move this one */
@@ -301,3 +324,4 @@ void erofs_exit_shrinker(void)
 	unregister_shrinker(&erofs_shrinker_info);
 }
 #endif	/* !CONFIG_EROFS_FS_ZIP */
+
