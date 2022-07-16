@@ -31,8 +31,8 @@
 #include <linux/relay.h>
 #include <linux/slab.h>
 #include <linux/percpu-rwsem.h>
-#include <linux/cpuset.h>
 #include <uapi/linux/sched/types.h>
+#include <linux/cpuset.h>
 
 #include <trace/events/power.h>
 #define CREATE_TRACE_POINTS
@@ -1080,18 +1080,7 @@ static int cpu_down_maps_locked(unsigned int cpu, enum cpuhp_state target)
 
 static int do_cpu_down(unsigned int cpu, enum cpuhp_state target)
 {
-	struct cpumask newmask;
 	int err;
-
-	preempt_disable();
-	cpumask_andnot(&newmask, cpu_online_mask, cpumask_of(cpu));
-	preempt_enable();
-
-	/* One big, LITTLE, and prime CPU must remain online */
-	if (!cpumask_intersects(&newmask, cpu_lp_mask) ||
-	    !cpumask_intersects(&newmask, cpu_perf_mask) ||
-	    !cpumask_intersects(&newmask, cpu_prime_mask))
-		return -EINVAL;
 
 	/*
 	 * When cpusets are enabled, the rebuilding of the scheduling
@@ -1324,7 +1313,6 @@ int freeze_secondary_cpus(int primary)
 	int cpu, error = 0;
 
 	cpu_maps_update_begin();
-	unaffine_perf_irqs();
 	if (!cpu_online(primary))
 		primary = cpumask_first(cpu_online_mask);
 	/*
@@ -1399,7 +1387,7 @@ void enable_nonboot_cpus(void)
 		error = _cpu_up(cpu, 1, CPUHP_ONLINE);
 		trace_suspend_resume(TPS("CPU_ON"), cpu, false);
 		if (!error) {
-			pr_debug("CPU%d is up\n", cpu);
+			pr_info("CPU%d is up\n", cpu);
 			cpu_device = get_cpu_device(cpu);
 			if (!cpu_device)
 				pr_err("%s: failed to get cpu%d device\n",
@@ -1414,7 +1402,6 @@ void enable_nonboot_cpus(void)
 	arch_enable_nonboot_cpus_end();
 
 	cpumask_clear(frozen_cpus);
-	reaffine_perf_irqs(false);
 out:
 	cpu_maps_update_done();
 }
@@ -1499,11 +1486,6 @@ static struct cpuhp_step cpuhp_hp_states[] = {
 		.startup.single		= perf_event_init_cpu,
 		.teardown.single	= perf_event_exit_cpu,
 	},
-	[CPUHP_RANDOM_PREPARE] = {
-		.name			= "random:prepare",
-		.startup.single		= random_prepare_cpu,
-		.teardown.single	= NULL,
-	},
 	[CPUHP_WORKQUEUE_PREP] = {
 		.name			= "workqueue:prepare",
 		.startup.single		= workqueue_prepare_cpu,
@@ -1579,13 +1561,11 @@ static struct cpuhp_step cpuhp_hp_states[] = {
 		.startup.single		= NULL,
 		.teardown.single	= smpcfd_dying_cpu,
 	},
-#ifndef CONFIG_ARM_QCOM_CPUFREQ_HW
 	/* Entry state on starting. Interrupts enabled from here on. Transient
 	 * state for synchronsization */
 	[CPUHP_AP_ONLINE] = {
 		.name			= "ap:online",
 	},
-#endif
 	/*
 	 * Handled on controll processor until the plugged processor manages
 	 * this itself.
@@ -1621,11 +1601,6 @@ static struct cpuhp_step cpuhp_hp_states[] = {
 		.name			= "workqueue:online",
 		.startup.single		= workqueue_online_cpu,
 		.teardown.single	= workqueue_offline_cpu,
-	},
-	[CPUHP_AP_RANDOM_ONLINE] = {
-		.name			= "random:online",
-		.startup.single		= random_online_cpu,
-		.teardown.single	= NULL,
 	},
 	[CPUHP_AP_RCUTREE_ONLINE] = {
 		.name			= "RCU/tree:online",
