@@ -964,3 +964,4 @@ unsigned int kstat_irqs_usr(unsigned int irq)
 	rcu_read_unlock();
 	return sum;
 }
+EXPORT_SYMBOL_GPL(kstat_irqs_usr);
