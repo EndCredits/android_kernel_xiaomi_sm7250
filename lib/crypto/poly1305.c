@@ -12,8 +12,7 @@
 #include <linux/module.h>
 #include <asm/unaligned.h>
 
-void poly1305_init_generic(struct poly1305_desc_ctx *desc,
-			   const u8 key[POLY1305_KEY_SIZE])
+void poly1305_init_generic(struct poly1305_desc_ctx *desc, const u8 *key)
 {
 	poly1305_core_setkey(&desc->core_r, key);
 	desc->s[0] = get_unaligned_le32(key + 16);

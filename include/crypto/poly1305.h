@@ -58,10 +58,8 @@ struct poly1305_desc_ctx {
 	};
 };
 
-void poly1305_init_arch(struct poly1305_desc_ctx *desc,
-			const u8 key[POLY1305_KEY_SIZE]);
-void poly1305_init_generic(struct poly1305_desc_ctx *desc,
-			   const u8 key[POLY1305_KEY_SIZE]);
+void poly1305_init_arch(struct poly1305_desc_ctx *desc, const u8 *key);
+void poly1305_init_generic(struct poly1305_desc_ctx *desc, const u8 *key);
 
 static inline void poly1305_init(struct poly1305_desc_ctx *desc, const u8 *key)
 {
