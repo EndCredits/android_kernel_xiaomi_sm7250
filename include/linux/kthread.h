@@ -72,7 +72,6 @@ bool kthread_is_per_cpu(struct task_struct *k);
 	__k;								   \
 })
 
-
 void free_kthread_struct(struct task_struct *k);
 void kthread_bind(struct task_struct *k, unsigned int cpu);
 void kthread_bind_mask(struct task_struct *k, const struct cpumask *mask);
