@@ -232,7 +232,7 @@ struct smb5 {
 #ifdef CONFIG_BQ2597X_CHARGE_PUMP
 static struct smb_charger *__smbchg;
 #endif
-static int __debug_mask = PR_INTERRUPT | PR_MISC | PR_PARALLEL | PR_OTG | PR_WLS | PR_OEM;
+static int __debug_mask = 0;
 
 static ssize_t pd_disabled_show(struct device *dev, struct device_attribute
 				*attr, char *buf)
@@ -473,12 +473,17 @@ static int smb5_parse_dt_misc(struct smb5 *chip, struct device_node *node)
 
 	chg->sw_jeita_enabled = of_property_read_bool(node,
 				"qcom,sw-jeita-enable");
+
+	chg->jeita_arb_enable = of_property_read_bool(node,
+				"qcom,jeita-arb-enable");
+
 #ifdef CONFIG_BQ2597X_CHARGE_PUMP
 	chg->use_bq_pump = of_property_read_bool(node,
 				"mi,use-bq-pump");
 #endif
 	chg->use_smb_pump = of_property_read_bool(node,
 				"mi,use-smb-pump");
+
 	chg->pd_not_supported = chg->pd_not_supported ||
 			of_property_read_bool(node, "qcom,usb-pd-disable");
 
@@ -1119,14 +1124,7 @@ static int smb5_usb_get_prop(struct power_supply *psy,
 		val->intval = get_client_vote(chg->usb_icl_votable, PD_VOTER);
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_MAX:
-		if (smblib_get_fastcharge_mode(chg))
-#if IS_ENABLED(CONFIG_BOARD_PICASSO)
-			val->intval = 10000000;
-#else
-			val->intval = 6000000;
-#endif
-		else
-			rc = smblib_get_prop_input_current_max(chg, val);
+		rc = smblib_get_prop_input_current_max(chg, val);
 		break;
 	case POWER_SUPPLY_PROP_TYPE:
 		val->intval = POWER_SUPPLY_TYPE_USB_PD;
