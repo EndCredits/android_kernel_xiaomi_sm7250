@@ -1452,8 +1452,6 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	ret = CTP_SPI_READ(ts->client, point_data, POINT_DATA_LEN + 1);
 	if (ret < 0) {
 		NVT_ERR("CTP_SPI_READ failed.(%d)\n", ret);
-		if (ts->debug_flag >= TOUCH_DISABLE_LPM)
-			lpm_disable_for_input(false);
 		goto XFER_ERROR;
 	}
 /*
@@ -1471,8 +1469,6 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 		NVT_ERR("Recover for fw reset, %02X\n", point_data[1]);
 		nvt_update_firmware(ts->fw_name);
 
-		if (ts->debug_flag >= TOUCH_DISABLE_LPM)
-			lpm_disable_for_input(false);
 		goto XFER_ERROR;
    }
 #endif /* #if NVT_TOUCH_WDT_RECOVERY */
@@ -1481,8 +1477,6 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	/* ESD protect by FW handshake */
 	if (nvt_fw_recovery(point_data)) {
 		nvt_esd_check_enable(true);
-		if (ts->debug_flag >= TOUCH_DISABLE_LPM)
-			lpm_disable_for_input(false);
 		goto XFER_ERROR;
 	}
 #endif /* #if NVT_TOUCH_ESD_PROTECT */
@@ -1491,8 +1485,6 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	input_id = (uint8_t)(point_data[1] >> 3);
 
 	if (nvt_check_palm(input_id, point_data)) {
-		if (ts->debug_flag >= TOUCH_DISABLE_LPM)
-			lpm_disable_for_input(false);
 		goto XFER_ERROR; /* to skip point data parsing */
 	}
 #endif
@@ -1501,8 +1493,6 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	if (bTouchIsAwake == 0) {
 		input_id = (uint8_t)(point_data[1] >> 3);
 		nvt_ts_wakeup_gesture_report(input_id, point_data);
-		if (ts->debug_flag >= TOUCH_DISABLE_LPM)
-			lpm_disable_for_input(false);
 		mutex_unlock(&ts->lock);
 		return IRQ_HANDLED;
 	}
