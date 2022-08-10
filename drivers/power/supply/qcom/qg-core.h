@@ -187,8 +187,8 @@ struct qpnp_qg {
 	bool			tcss_active;
 	bool			fastcharge_mode_enabled;
 	bool			bass_active;
-	bool			shutdown_delay;
 	bool			first_profile_load;
+	bool			shutdown_delay;
 	int			charge_status;
 	int			charge_type;
 	int			chg_iterm_ma;
