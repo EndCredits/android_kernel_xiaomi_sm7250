@@ -2,7 +2,7 @@
  * netlink interface
  *
  * Copyright (c) 2017 Goodix
- * Copyright (C) 2021 XiaoMi, Inc.
+ * Copyright (C) 2021-2022 XiaoMi, Inc.
  */
 #include <linux/init.h>
 #include <linux/module.h>

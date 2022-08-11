@@ -2,6 +2,7 @@
  * driver definition for sensor driver
  *
  * Coypright (c) 2017 Goodix
+ * Copyright (C) 2022 XiaoMi, Inc.
  */
 #ifndef __GF_SPI_H
 #define __GF_SPI_H
@@ -105,6 +106,7 @@ struct gf_ioc_chip_info {
 #define USE_PLATFORM_BUS		1
 /*#define  USE_SPI_BUS  1*/
 /*#define GF_FASYNC   1*//*If support fasync mechanism.*/
+#define CONFIG_FINGERPRINT_FP_VREG_CONTROL
 #ifndef CONFIG_FINGERPRINT_FP_VREG_CONTROL
 #define GF_PW_CTL 1
 #endif
@@ -142,6 +144,7 @@ struct gf_dev {
 	char fb_black;
 	char wait_finger_down;
 	struct work_struct work;
+	uint32_t key_flag;  /*if not up, flag = 1*/
 #ifdef CONFIG_FINGERPRINT_FP_VREG_CONTROL
 	struct regulator *vreg;
 #endif
