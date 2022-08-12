@@ -18,7 +18,7 @@
  *
  *
  * Copyright (c) 2015 Fingerprint Cards AB <tech@fingerprints.com>
- * Copyright (C) 2021-2022 Xiaomi, Inc.
+ * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License Version 2
@@ -67,7 +67,6 @@
 #define RELEASE_WAKELOCK "release_wakelock"
 #define START_IRQS_RECEIVED_CNT "start_irqs_received_counter"
 
-
 static const char *const pctl_names[] = {
 	"fpc1020_reset_reset",
 	"fpc1020_reset_active",
@@ -80,10 +79,6 @@ struct vreg_config {
 	int ua_load;
 	int gpio;
 };
-
-#ifdef CONFIG_FINGERPRINT_FP_VREG_CONTROL
-struct regulator *vreg;
-#endif
 
 static struct vreg_config vreg_conf[] = {
 	{"vdd_ana", 1800000UL, 1800000UL, 6000, FPC_GPIO_NO_DEFAULT},
@@ -566,35 +561,12 @@ static int device_prepare(struct fpc1020_data *fpc1020, bool enable)
 
 		select_pin_ctl(fpc1020, "fpc1020_reset_reset");
 
-#ifdef CONFIG_FINGERPRINT_FP_VREG_CONTROL
-		pr_info("Try to enable fp_vdd_vreg\n");
-		vreg = regulator_get(dev, "fp_vdd_vreg");
-
-		if (vreg == NULL) {
-			dev_err(dev, "fp_vdd_vreg regulator get failed!\n");
-			goto exit;
-		}
-
-		if (regulator_is_enabled(vreg)) {
-			pr_info("fp_vdd_vreg is already enabled!\n");
-		} else {
-			rc = regulator_enable(vreg);
-			if (rc) {
-			dev_err(dev, "error enabling fp_vdd_vreg!\n");
-			regulator_put(vreg);
-			vreg = NULL;
-			goto exit;
-			}
-		}
-
-		pr_info("fp_vdd_vreg is enabled!\n");
-#else
 		rc = vreg_setup(fpc1020, "vdd_ana", true);
 		if (rc) {
 			dev_dbg(dev, "fpc power on failed。 \n");
 			goto exit;
 		}
-#endif
+
 		usleep_range(PWR_ON_SLEEP_MIN_US, PWR_ON_SLEEP_MAX_US);
 
 		/* As we can't control chip select here the other part of the
@@ -618,13 +590,13 @@ static int device_prepare(struct fpc1020_data *fpc1020, bool enable)
 		(void)select_pin_ctl(fpc1020, "fpc1020_reset_reset");
 
 		usleep_range(PWR_ON_SLEEP_MIN_US, PWR_ON_SLEEP_MAX_US);
-#ifndef CONFIG_FINGERPRINT_FP_VREG_CONTROL
+
 		rc = vreg_setup(fpc1020, "vdd_ana", false);
 		if (rc) {
 			dev_dbg(dev, "fpc vreg power off failed. \n");
 			goto exit;
 		}
-#endif
+
 exit:
 		fpc1020->prepared = false;
 	} else {
