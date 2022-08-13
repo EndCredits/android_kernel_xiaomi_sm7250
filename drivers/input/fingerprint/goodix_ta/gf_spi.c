@@ -1,7 +1,7 @@
 /*
  * TEE driver for goodix fingerprint sensor
  * Copyright (C) 2016 Goodix
- * Copyright (C) 2021-2022 XiaoMi, Inc.
+ * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -336,58 +336,6 @@ static void nav_event_input(struct gf_dev *gf_dev, gf_nav_event_t nav_event)
 	}
 }
 
-
-static void gf_kernel_key_input(struct gf_dev *gf_dev, struct gf_key *gf_key)
-{
-	uint32_t key_input = 0;
-
-	if (GF_KEY_HOME == gf_key->key) {
-		key_input = GF_KEY_INPUT_HOME;
-	}
-	else if (GF_KEY_POWER == gf_key->key) {
-		key_input = GF_KEY_INPUT_POWER;
-	}
-	else if (GF_KEY_CAMERA == gf_key->key) {
-		key_input = GF_KEY_INPUT_CAMERA;
-	}
-	else {
-		/* add special key define */
-		key_input = gf_key->key;
-	}
-
-	pr_debug("%s: received key event[%d], key=%d, value=%d\n",
-		 __func__, key_input, gf_key->key, gf_key->value);
-
-	if ((GF_KEY_POWER == gf_key->key || GF_KEY_CAMERA == gf_key->key)
-		&& (gf_key->value == 1)) {
-		input_report_key(gf_dev->input, key_input, 1);
-		input_sync(gf_dev->input);
-		input_report_key(gf_dev->input, key_input, 0);
-		input_sync(gf_dev->input);
-	}
-	if (GF_KEY_HOME == gf_key->key) {
-		pr_debug("%s GF_KEY_HOME_enter\n", __func__);
-		if ((gf_dev->key_flag == 1) && (gf_key->value == 1)){
-			pr_debug("%s add up\n", __func__);
-			input_report_key(gf_dev->input, key_input, 0);
-			input_sync(gf_dev->input);
-			input_report_key(gf_dev->input, key_input, gf_key->value);
-			input_sync(gf_dev->input);
-		}else{
-			input_report_key(gf_dev->input, key_input, gf_key->value);
-			input_sync(gf_dev->input);
-		}
-          
-		if (gf_key->value == 1){
-			gf_dev->key_flag = 1;
-		}else if (gf_key->value == 0){
-			gf_dev->key_flag = 0;
-		}
-          
-        }
-
-}
-
 static long gf_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	struct gf_dev *gf_dev = &gf;
@@ -452,15 +400,6 @@ static long gf_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			gf_hw_reset(gf_dev, 3);
 			break;
 
-		case GF_IOC_INPUT_KEY_EVENT:
-		if (copy_from_user(&gf_key, (struct gf_key *)arg, sizeof(struct gf_key))) {
-			pr_debug("Failed to copy input key event from user to kernel\n");
-			retval = -EFAULT;
-			break;
-		}
-
-		gf_kernel_key_input(gf_dev, &gf_key);
-		break;
 #if defined(SUPPORT_NAV_EVENT)
 
 		case GF_IOC_NAV_EVENT:
@@ -623,12 +562,6 @@ static int gf_open(struct inode *inode, struct file *filp)
 	if (regulator_is_enabled(gf_dev->vreg)) {
 		pr_info("fp_vdd_vreg is already enabled!\n");
 	} else {
-
-		rc = regulator_set_load(gf_dev->vreg, 100000);
-		if (rc < 0) {
-			dev_err(&gf_dev->spi->dev, "Regulator set load failed rc = %d\n", rc);
-		}
-
 		rc = regulator_enable(gf_dev->vreg);
 
 		if (rc) {
@@ -742,7 +675,6 @@ static int gf_release(struct inode *inode, struct file *filp)
 
 	if (!gf_dev->users) {
 		pr_debug("disble_irq. irq = %d\n", gf_dev->irq);
-		gpio_direction_output(gf_dev->reset_gpio, 0);
 		gf_disable_irq(gf_dev);
 		/*power off the sensor*/
 		gf_dev->device_available = 0;
@@ -949,8 +881,14 @@ static int gf_probe(struct platform_device *pdev)
 #endif
 	gf_dev->irq = gf_irq_num(gf_dev);
         fp_wakelock = wakeup_source_register(&gf_dev->spi->dev, "fp_wakelock");
+	if(fp_wakelock==NULL)
+		goto error_wakelock;
 	pr_debug("version V%d.%d.%02d\n", VER_MAJOR, VER_MINOR, PATCH_LEVEL);
 	return status;
+
+error_wakelock:
+	pr_debug("create fp wakelock failed.\n");
+
 #ifdef AP_CONTROL_CLK
 gfspi_probe_clk_enable_failed:
 	gfspi_ioctl_clk_uninit(gf_dev);
@@ -988,6 +926,7 @@ static int gf_remove(struct platform_device *pdev)
 {
 	struct gf_dev *gf_dev = &gf;
 	wakeup_source_unregister(fp_wakelock);
+	fp_wakelock = NULL;
 
 	/* make sure ops on existing fds can abort cleanly */
 	if (gf_dev->irq) {
