@@ -483,7 +483,6 @@ static int smb5_parse_dt_misc(struct smb5 *chip, struct device_node *node)
 #endif
 	chg->use_smb_pump = of_property_read_bool(node,
 				"mi,use-smb-pump");
-
 	chg->pd_not_supported = chg->pd_not_supported ||
 			of_property_read_bool(node, "qcom,usb-pd-disable");
 
@@ -2208,7 +2207,7 @@ static int smb5_batt_get_prop(struct power_supply *psy,
 				 POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN, val);
 		break;
 	default:
-		pr_err("batt power supply prop %d not supported\n", psp);
+		pr_debug("batt power supply prop %d not supported\n", psp);
 		return -EINVAL;
 	}
 
