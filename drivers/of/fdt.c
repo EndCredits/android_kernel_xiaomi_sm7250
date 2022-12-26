@@ -1253,6 +1253,7 @@ int __init early_init_dt_scan_chosen(unsigned long node, const char *uname,
 
 		/* try to clear seed so it won't be found. */
 		fdt_nop_property(initial_boot_params, node, "rng-seed");
+	}
 
 	early_init_dt_check_for_powerup_reason(node);
 	/* break now */
