@@ -8,12 +8,14 @@
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <asm/irq_regs.h>
+#include <linux/lrng.h>
 #include <linux/percpu.h>
 #include <linux/random.h>
 #include <linux/utsname.h>
 #include <linux/workqueue.h>
 
 #include "lrng_internal.h"
+#include "lrng_es_irq.h"
 
 struct lrng_state {
 	bool can_invalidate;		/* Can invalidate batched entropy? */
@@ -195,7 +197,7 @@ u32 lrng_avail_entropy(void)
 	       lrng_jent_entropylevel(ent_thresh);
 }
 
-/*
+/**
  * lrng_init_ops() - Set seed stages of LRNG
  *
  * Set the slow noise source reseed trigger threshold. The initial threshold
@@ -295,7 +297,7 @@ int __init rand_initialize(void)
 	return 0;
 }
 
-/* Interface requesting a reseed of the DRNG */
+/* Hot code path during boot - mix data into entropy pool during boot */
 void lrng_pool_add_entropy(void)
 {
 	/*
@@ -318,7 +320,7 @@ void lrng_pool_add_entropy(void)
 	if (lrng_pool_trylock())
 		return;
 
-	/* Seed the DRNG with any available noise. */
+	/* Seed the DRNG with IRQ noise. */
 	if (lrng_state.perform_seedwork)
 		schedule_work(&lrng_state.lrng_seed_work);
 	else
