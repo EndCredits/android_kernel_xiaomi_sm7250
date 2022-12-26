@@ -1465,6 +1465,22 @@ core_initcall(cpu_hotplug_pm_sync_init);
 
 int __boot_cpu_id;
 
+/* Horrific hacks because we can't add more to cpuhp_hp_states. */
+static int random_and_perf_prepare_fusion(unsigned int cpu)
+{
+#ifdef CONFIG_PERF_EVENTS
+	perf_event_init_cpu(cpu);
+#endif
+	random_prepare_cpu(cpu);
+	return 0;
+}
+static int random_and_workqueue_online_fusion(unsigned int cpu)
+{
+	workqueue_online_cpu(cpu);
+	random_online_cpu(cpu);
+	return 0;
+}
+
 #endif /* CONFIG_SMP */
 
 /* Boot processor state steps */
