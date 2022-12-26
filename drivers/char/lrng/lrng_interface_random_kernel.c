@@ -32,7 +32,6 @@ int __init rand_initialize(void)
 {
 	return lrng_rand_initialize();
 }
-early_initcall(rand_initialize);
 
 bool lrng_ready_list_has_sleeper(void)
 {

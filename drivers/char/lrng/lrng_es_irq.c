@@ -7,7 +7,6 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
-#include <linux/preempt.h>
 #include <asm/irq_regs.h>
 #include <asm/ptrace.h>
 #include <crypto/hash.h>
