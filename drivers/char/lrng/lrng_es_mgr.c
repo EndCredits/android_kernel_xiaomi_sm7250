@@ -2,25 +2,18 @@
 /*
  * LRNG Entropy sources management
  *
- * Copyright (C) 2022, Stephan Mueller <smueller@chronox.de>
+ * Copyright (C) 2016 - 2021, Stephan Mueller <smueller@chronox.de>
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+#include <asm/irq_regs.h>
+#include <linux/percpu.h>
 #include <linux/random.h>
 #include <linux/utsname.h>
 #include <linux/workqueue.h>
 
-#include "lrng_drng_mgr.h"
-#include "lrng_es_aux.h"
-#include "lrng_es_cpu.h"
-#include "lrng_es_irq.h"
-#include "lrng_es_jent.h"
-#include "lrng_es_krng.h"
-#include "lrng_es_mgr.h"
-#include "lrng_es_sched.h"
-#include "lrng_interface_dev_common.h"
-#include "lrng_interface_random_kernel.h"
+#include "lrng_internal.h"
 
 struct lrng_state {
 	bool can_invalidate;		/* Can invalidate batched entropy? */
@@ -38,6 +31,8 @@ struct lrng_state {
 	 * triggering of external noise source is performed even when the
 	 * entropy pool has sufficient entropy.
 	 */
+	bool lrng_seed_hw;		/* Allow HW to provide seed */
+	bool lrng_seed_user;		/* Allow user space to provide seed */
 
 	atomic_t boot_entropy_thresh;	/* Reseed threshold */
 	atomic_t reseed_in_progress;	/* Flag for on executing reseed */
@@ -45,58 +40,34 @@ struct lrng_state {
 };
 
 static struct lrng_state lrng_state = {
-	false, false, false, false, false, false,
+	false, false, false, false, false, false, true, true,
 	.boot_entropy_thresh	= ATOMIC_INIT(LRNG_INIT_ENTROPY_BITS),
 	.reseed_in_progress	= ATOMIC_INIT(0),
 };
 
-/*
- * If the entropy count falls under this number of bits, then we
- * should wake up processes which are selecting or polling on write
- * access to /dev/random.
- */
-u32 lrng_write_wakeup_bits = (LRNG_WRITE_WAKEUP_ENTROPY << 3);
-
-/*
- * The entries must be in the same order as defined by enum lrng_internal_es and
- * enum lrng_external_es
- */
-struct lrng_es_cb *lrng_es[] = {
-#ifdef CONFIG_LRNG_IRQ
-	&lrng_es_irq,
-#endif
-#ifdef CONFIG_LRNG_SCHED
-	&lrng_es_sched,
-#endif
-#ifdef CONFIG_LRNG_JENT
-	&lrng_es_jent,
-#endif
-#ifdef CONFIG_LRNG_CPU
-	&lrng_es_cpu,
-#endif
-#ifdef CONFIG_LRNG_KERNEL_RNG
-	&lrng_es_krng,
-#endif
-	&lrng_es_aux
-};
-
 /********************************** Helper ***********************************/
 
-void lrng_debug_report_seedlevel(const char *name)
+/* External entropy provider is allowed to provide seed data */
+bool lrng_state_exseed_allow(enum lrng_external_noise_source source)
 {
-#ifdef CONFIG_WARN_ALL_UNSEEDED_RANDOM
-	static void *previous = NULL;
-	void *caller = (void *) _RET_IP_;
+	if (source == lrng_noise_source_hw)
+		return lrng_state.lrng_seed_hw;
+	return lrng_state.lrng_seed_user;
+}
 
-	if (READ_ONCE(previous) == caller)
-		return;
+/* Enable / disable external entropy provider to furnish seed */
+void lrng_state_exseed_set(enum lrng_external_noise_source source, bool type)
+{
+	if (source == lrng_noise_source_hw)
+		lrng_state.lrng_seed_hw = type;
+	else
+		lrng_state.lrng_seed_user = type;
+}
 
-	if (!lrng_state_min_seeded())
-		pr_notice("%pS %s called without reaching minimally seeded level (available entropy %u)\n",
-			  caller, name, lrng_avail_entropy());
-
-	WRITE_ONCE(previous, caller);
-#endif
+static inline void lrng_state_exseed_allow_all(void)
+{
+	lrng_state_exseed_set(lrng_noise_source_hw, true);
+	lrng_state_exseed_set(lrng_noise_source_user, true);
 }
 
 /*
@@ -127,12 +98,8 @@ void lrng_set_entropy_thresh(u32 new_entropy_bits)
  */
 void lrng_reset_state(void)
 {
-	u32 i;
-
-	for_each_lrng_es(i) {
-		if (lrng_es[i]->reset)
-			lrng_es[i]->reset();
-	}
+	lrng_pool_set_entropy(0);
+	lrng_pcpu_reset();
 	lrng_state.lrng_operational = false;
 	lrng_state.lrng_fully_seeded = false;
 	lrng_state.lrng_min_seeded = false;
@@ -164,26 +131,11 @@ bool lrng_state_operational(void)
 	return lrng_state.lrng_operational;
 }
 
-static void lrng_init_wakeup(void)
-{
-	wake_up_all(&lrng_init_wait);
-	lrng_init_wakeup_dev();
-}
-
-static bool lrng_fully_seeded(bool fully_seeded, u32 collected_entropy)
-{
-	return (collected_entropy >= lrng_get_seed_entropy_osr(fully_seeded));
-}
-
 /* Policy to check whether entropy buffer contains full seeded entropy */
-bool lrng_fully_seeded_eb(bool fully_seeded, struct entropy_buf *eb)
+bool lrng_fully_seeded(bool fully_seeded, struct entropy_buf *eb)
 {
-	u32 i, collected_entropy = 0;
-
-	for_each_lrng_es(i)
-		collected_entropy += eb->e_bits[i];
-
-	return lrng_fully_seeded(fully_seeded, collected_entropy);
+	return ((eb->a_bits + eb->b_bits + eb->c_bits + eb->d_bits) >=
+		lrng_get_seed_entropy_osr(fully_seeded));
 }
 
 /* Mark one DRNG as not fully seeded */
@@ -204,20 +156,20 @@ void lrng_unset_fully_seeded(struct lrng_drng *drng)
 		lrng_state.lrng_fully_seeded = false;
 
 		/* If sufficient entropy is available, reseed now. */
-		lrng_es_add_entropy();
+		lrng_pool_add_entropy();
 	}
 }
 
 /* Policy to enable LRNG operational mode */
-static void lrng_set_operational(void)
+static inline void lrng_set_operational(u32 external_es)
 {
-	/*
-	 * LRNG is operational if the initial DRNG is fully seeded. This state
-	 * can only occur if either the external entropy sources provided
-	 * sufficient entropy, or the SP800-90B startup test completed for
-	 * the internal ES to supply also entropy data.
-	 */
-	if (lrng_state.lrng_fully_seeded) {
+	/* LRNG is operational if the initial DRNG is fully seeded ... */
+	if (lrng_state.lrng_fully_seeded &&
+	    /* ... and either internal ES SP800-90B startup is complete ... */
+	    (lrng_sp80090b_startup_complete() ||
+	    /* ... or the external ES provided sufficient entropy. */
+	     (lrng_get_seed_entropy_osr(lrng_state_fully_seeded()) <=
+	      external_es))) {
 		lrng_state.lrng_operational = true;
 		lrng_process_ready_list();
 		lrng_init_wakeup();
@@ -225,7 +177,8 @@ static void lrng_set_operational(void)
 	}
 }
 
-static u32 lrng_avail_entropy_thresh(void)
+/* Available entropy in the entire LRNG considering all entropy sources */
+u32 lrng_avail_entropy(void)
 {
 	u32 ent_thresh = lrng_security_strength();
 
@@ -235,20 +188,11 @@ static u32 lrng_avail_entropy_thresh(void)
 	 */
 	if (lrng_sp80090c_compliant() &&
 	    !lrng_state.all_online_numa_node_seeded)
-		ent_thresh += LRNG_SEED_BUFFER_INIT_ADD_BITS;
+		ent_thresh += CONFIG_LRNG_SEED_BUFFER_INIT_ADD_BITS;
 
-	return ent_thresh;
-}
-
-/* Available entropy in the entire LRNG considering all entropy sources */
-u32 lrng_avail_entropy(void)
-{
-	u32 i, ent = 0, ent_thresh = lrng_avail_entropy_thresh();
-
-	BUILD_BUG_ON(ARRAY_SIZE(lrng_es) != lrng_ext_es_last);
-	for_each_lrng_es(i)
-		ent += lrng_es[i]->curr_entropy(ent_thresh);
-	return ent;
+	return lrng_pcpu_avail_entropy() + lrng_avail_aux_entropy() +
+	       lrng_archrandom_entropylevel(ent_thresh) +
+	       lrng_jent_entropylevel(ent_thresh);
 }
 
 /*
@@ -259,13 +203,12 @@ u32 lrng_avail_entropy(void)
  * reaching this value, the next seed threshold of 128 bits is set followed
  * by 256 bits.
  *
- * @eb: buffer containing the size of entropy currently injected into DRNG - if
- *	NULL, the function obtains the available entropy from the ES.
+ * @eb: buffer containing the size of entropy currently injected into DRNG
  */
 void lrng_init_ops(struct entropy_buf *eb)
 {
 	struct lrng_state *state = &lrng_state;
-	u32 i, requested_bits, seed_bits = 0;
+	u32 requested_bits, seed_bits, external_es;
 
 	if (state->lrng_operational)
 		return;
@@ -273,27 +216,23 @@ void lrng_init_ops(struct entropy_buf *eb)
 	requested_bits = lrng_get_seed_entropy_osr(
 					state->all_online_numa_node_seeded);
 
-	if (eb) {
-		for_each_lrng_es(i)
-			seed_bits += eb->e_bits[i];
-	} else {
-		u32 ent_thresh = lrng_avail_entropy_thresh();
-
-		for_each_lrng_es(i)
-			seed_bits += lrng_es[i]->curr_entropy(ent_thresh);
-	}
+	/*
+	 * Entropy provided by external entropy sources - if they provide
+	 * the requested amount of entropy, unblock the interface.
+	 */
+	external_es = eb->a_bits + eb->c_bits + eb->d_bits;
+	seed_bits = external_es + eb->b_bits;
 
 	/* DRNG is seeded with full security strength */
 	if (state->lrng_fully_seeded) {
-		lrng_set_operational();
+		lrng_set_operational(external_es);
 		lrng_set_entropy_thresh(requested_bits);
-	} else if (lrng_fully_seeded(state->all_online_numa_node_seeded,
-				     seed_bits)) {
+	} else if (lrng_fully_seeded(state->all_online_numa_node_seeded, eb)) {
 		if (state->can_invalidate)
 			invalidate_batched_entropy();
 
 		state->lrng_fully_seeded = true;
-		lrng_set_operational();
+		lrng_set_operational(external_es);
 		state->lrng_min_seeded = true;
 		pr_info("LRNG fully seeded with %u bits of entropy\n",
 			seed_bits);
@@ -320,7 +259,7 @@ void lrng_init_ops(struct entropy_buf *eb)
 	}
 }
 
-int __init lrng_rand_initialize(void)
+int __init rand_initialize(void)
 {
 	struct seed {
 		ktime_t time;
@@ -335,13 +274,8 @@ int __init lrng_rand_initialize(void)
 	seed.time = ktime_get_real();
 
 	for (i = 0; i < ARRAY_SIZE(seed.data); i++) {
-#ifdef CONFIG_LRNG_RANDOM_IF
 		if (!arch_get_random_seed_long_early(&(seed.data[i])) &&
 		    !arch_get_random_long_early(&seed.data[i]))
-#else
-		if (!arch_get_random_seed_long(&(seed.data[i])) &&
-		    !arch_get_random_long(&seed.data[i]))
-#endif
 			seed.data[i] = random_get_entropy();
 	}
 	memcpy(&seed.utsname, utsname(), sizeof(*(utsname())));
@@ -353,6 +287,7 @@ int __init lrng_rand_initialize(void)
 	INIT_WORK(&lrng_state.lrng_seed_work, lrng_drng_seed_work);
 	lrng_state.perform_seedwork = true;
 
+	lrng_drngs_init_cc20(true);
 	invalidate_batched_entropy();
 
 	lrng_state.can_invalidate = true;
@@ -360,18 +295,18 @@ int __init lrng_rand_initialize(void)
 	return 0;
 }
 
-#ifndef CONFIG_LRNG_RANDOM_IF
-early_initcall(lrng_rand_initialize);
-#endif
-
 /* Interface requesting a reseed of the DRNG */
-void lrng_es_add_entropy(void)
+void lrng_pool_add_entropy(void)
 {
 	/*
-	 * Once all DRNGs are fully seeded, the system-triggered arrival of
-	 * entropy will not cause any reseeding any more.
+	 * Once all DRNGs are fully seeded, the interrupt noise
+	 * sources will not trigger any reseeding any more.
 	 */
 	if (likely(lrng_state.all_online_numa_node_seeded))
+		return;
+
+	/* Only try to reseed if the DRNG is alive. */
+	if (!lrng_get_available())
 		return;
 
 	/* Only trigger the DRNG reseed if we have collected entropy. */
@@ -391,17 +326,17 @@ void lrng_es_add_entropy(void)
 }
 
 /* Fill the seed buffer with data from the noise sources */
-void lrng_fill_seed_buffer(struct entropy_buf *eb, u32 requested_bits)
+void lrng_fill_seed_buffer(struct entropy_buf *entropy_buf, u32 requested_bits)
 {
 	struct lrng_state *state = &lrng_state;
-	u32 i, req_ent = lrng_sp80090c_compliant() ?
+	u32 req_ent = lrng_sp80090c_compliant() ?
 			  lrng_security_strength() : LRNG_MIN_SEED_ENTROPY_BITS;
 
 	/* Guarantee that requested bits is a multiple of bytes */
 	BUILD_BUG_ON(LRNG_DRNG_SECURITY_STRENGTH_BITS % 8);
 
 	/* always reseed the DRNG with the current time stamp */
-	eb->now = random_get_entropy();
+	entropy_buf->now = random_get_entropy();
 
 	/*
 	 * Require at least 128 bits of entropy for any reseed. If the LRNG is
@@ -409,21 +344,30 @@ void lrng_fill_seed_buffer(struct entropy_buf *eb, u32 requested_bits)
 	 * 9.2 mandating that DRNG is reseeded with the security strength.
 	 */
 	if (state->lrng_fully_seeded && (lrng_avail_entropy() < req_ent)) {
-		for_each_lrng_es(i)
-			eb->e_bits[i] = 0;
-
+		entropy_buf->a_bits = entropy_buf->b_bits = 0;
+		entropy_buf->c_bits = entropy_buf->d_bits = 0;
 		goto wakeup;
 	}
 
 	/* Concatenate the output of the entropy sources. */
-	for_each_lrng_es(i) {
-		lrng_es[i]->get_ent(eb, requested_bits,
-				    state->lrng_fully_seeded);
-	}
+	entropy_buf->b_bits = lrng_pcpu_pool_hash(entropy_buf->b,
+						  requested_bits,
+						  state->lrng_fully_seeded);
+	entropy_buf->c_bits = lrng_get_arch(entropy_buf->c, requested_bits);
+	entropy_buf->d_bits = lrng_get_jent(entropy_buf->d, requested_bits);
+	lrng_get_backtrack_aux(entropy_buf, requested_bits);
 
 	/* allow external entropy provider to provide seed */
 	lrng_state_exseed_allow_all();
 
 wakeup:
+	/*
+	 * Shall we wake up user space writers? This location covers
+	 * ensures that the user space provider does not dominate the internal
+	 * noise sources since in case the first call of this function finds
+	 * sufficient entropy in the entropy pool, it will not trigger the
+	 * wakeup. This implies that when the next /dev/urandom read happens,
+	 * the entropy pool is drained.
+	 */
 	lrng_writer_wakeup();
 }
